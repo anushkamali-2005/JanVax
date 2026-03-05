@@ -18,7 +18,7 @@ import shap
 from ml.features import FEATURE_COLUMNS, features_to_series
 
 # ── Load model + build explainer once ────────────────────────────────────────
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "../../backend/models/xgb_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 
 _model    = None
 _explainer = None

@@ -29,7 +29,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from ml.features import FEATURE_COLUMNS, TARGET_COLUMN
 
 ACCURACY_GATE   = 0.90
-MODEL_OUTPUT    = os.path.join(os.path.dirname(__file__), "../backend/models/xgb_model.pkl")
+MODEL_OUTPUT    = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 MLFLOW_MODEL_NAME = "VaxGuardRiskModel"
 
 

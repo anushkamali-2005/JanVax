@@ -17,7 +17,7 @@ import dice_ml
 
 from ml.features import FEATURE_COLUMNS, TARGET_COLUMN
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "../../backend/models/xgb_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 DATA_PATH  = os.path.join(os.path.dirname(__file__), "data/synthetic_records.csv")
 
 # Features a parent can actually act on — do not include age_months or gender_male
