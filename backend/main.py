@@ -10,6 +10,7 @@ CRITICAL: CORS allows Vercel frontend domain + localhost for dev.
 """
 
 import os
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,32 +20,41 @@ from routers import predict, agent, verify, ocr, community, stats, reminders
 from services.firebase_service import init_firebase
 from services.reminder_service import start_scheduler, stop_scheduler
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("vaxguard")
+
 
 # ── Lifespan (startup + shutdown) ─────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
-    print("[startup] Initializing Firebase Admin SDK...")
+    logger.info("Initializing Firebase Admin SDK...")
     init_firebase()
 
-    print("[startup] Starting APScheduler reminder jobs...")
+    logger.info("Starting APScheduler reminder jobs...")
     start_scheduler()
 
-    print("[startup] VaxGuard API ready.")
+    logger.info("VaxGuard API ready.")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
-    print("[shutdown] Stopping scheduler...")
+    logger.info("Stopping scheduler...")
     stop_scheduler()
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="VaxGuard AI API",
+    title="JanVax AI API",
     version="1.0.0",
-    description="India's AI vaccination tracking platform",
+    description="India's AI-powered digital vaccination record management system",
     lifespan=lifespan,
 )
 
@@ -79,4 +89,4 @@ app.include_router(reminders.router,  prefix="/reminders", tags=["Reminders"])
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vaxguard-api"}
+    return {"status": "ok", "service": "janvax-api", "version": "1.0.0"}

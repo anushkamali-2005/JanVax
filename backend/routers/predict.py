@@ -12,12 +12,13 @@ CRITICAL: Every prediction is hashed + stored on Polygon via verify service.
 
 import json
 import hashlib
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from ml.features import engineer_features
+from ml.features import engineer_features, HIGH_RISK_STATES
 from ml.shap_explainer import get_risk_and_shap, get_top_features
 from ml.dice_explainer import get_counterfactuals
 from services.firebase_service import get_child_doc, get_user_language
@@ -26,6 +27,8 @@ from services.polygon_service import store_hash
 from services.firebase_service import verify_firebase_token
 from database.postgres import get_session
 from sqlalchemy import text
+
+logger = logging.getLogger("vaxguard.predict")
 
 router = APIRouter()
 
@@ -82,7 +85,6 @@ async def predict(
         raise HTTPException(status_code=404, detail="Child not found")
 
     # Update features with Firestore data
-    from ml.features import HIGH_RISK_STATES
     state_raw = child_doc.get("state", "").lower().replace(" ", "_")
     feature_dict["state_high_risk"]       = int(state_raw in HIGH_RISK_STATES)
     feature_dict["reminder_ignored_count"] = int(child_doc.get("reminderIgnoreCount", 0))
@@ -222,7 +224,7 @@ async def explain(
 
 # ── Background helpers ────────────────────────────────────────────────────────
 
-async def _store_prediction(record: dict, record_hash: str, parent_uid: str, child_id: str):
+async def _store_prediction(record: dict, record_hash: str, parent_uid: str, child_id: str) -> None:
     """Stores prediction in PostgreSQL and hash on Polygon."""
     try:
         # Store on Polygon
@@ -249,11 +251,18 @@ async def _store_prediction(record: dict, record_hash: str, parent_uid: str, chi
                 "polygon_tx_id": tx_id,
             })
             await session.commit()
-    except Exception as e:
-        print(f"[_store_prediction] Error: {e}")
+    except Exception as exc:
+        logger.error("Failed to store prediction for child %s: %s", child_id, exc)
 
 
-async def _trigger_agent(child_id, risk_score, top_disease, parent_uid, shap_values, child_data):
+async def _trigger_agent(
+    child_id: str,
+    risk_score: int,
+    top_disease: str,
+    parent_uid: str,
+    shap_values: dict,
+    child_data: dict,
+) -> None:
     """Triggers LangGraph agent graph for high-risk child."""
     try:
         from agents.graph import agent_graph
@@ -275,5 +284,5 @@ async def _trigger_agent(child_id, risk_score, top_disease, parent_uid, shap_val
             "debate_log":         [],
         }
         agent_graph.invoke(initial_state)
-    except Exception as e:
-        print(f"[_trigger_agent] Error: {e}")
+    except Exception as exc:
+        logger.error("Agent trigger failed for child %s: %s", child_id, exc)

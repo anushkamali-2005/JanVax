@@ -11,8 +11,8 @@ CRITICAL: Hash the full decision record and store on Polygon.
 """
 
 import json
-import hashlib
 import asyncio
+import logging
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
@@ -25,6 +25,8 @@ from agents.memory import load_family_memory
 from services.firebase_service import verify_firebase_token, get_child_doc
 from services.polygon_service import store_hash, compute_hash
 from database.postgres import get_session
+
+logger = logging.getLogger("vaxguard.agent")
 
 router = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -60,7 +62,7 @@ async def trigger_agent(
         raise HTTPException(status_code=404, detail="Child not found")
 
     # Fetch SHAP values for this prediction from PostgreSQL
-    shap_values = {}
+    shap_values: dict = {}
     async with get_session() as session:
         row = await session.execute(
             text("SELECT shap_values FROM ai_predictions WHERE id = :pid"),
@@ -92,8 +94,8 @@ async def trigger_agent(
         "debate_log":         [],
     }
 
-    # Run synchronous LangGraph in thread pool
-    loop = asyncio.get_event_loop()
+    # Run synchronous LangGraph in thread pool (avoids blocking event loop)
+    loop = asyncio.get_running_loop()
     final_state = await loop.run_in_executor(
         _executor,
         lambda: agent_graph.invoke(initial_state)
@@ -138,11 +140,7 @@ async def trigger_agent(
             agent_decision_id = row[0]
 
     # Hash on Polygon (fire and forget — don't block response)
-    asyncio.create_task(store_hash(
-        record_json=decision_record,
-        entity_type="decision",
-        entity_id=str(agent_decision_id or req.child_id),
-    ))
+    asyncio.create_task(_store_hash_on_polygon(decision_record, agent_decision_id, req.child_id))
 
     return {
         "decision":          final_state.get("decision"),
@@ -151,6 +149,18 @@ async def trigger_agent(
         "agent_decision_id": agent_decision_id,
         "record_hash":       record_hash,
     }
+
+
+async def _store_hash_on_polygon(decision_record: dict, decision_id: int | None, child_id: str) -> None:
+    """Fire-and-forget background task to store hash on Polygon."""
+    try:
+        await store_hash(
+            record_json=decision_record,
+            entity_type="decision",
+            entity_id=str(decision_id or child_id),
+        )
+    except Exception as exc:
+        logger.warning("Polygon hash storage failed: %s", exc)
 
 
 # ── GET /agent/decisions/{child_id} ──────────────────────────────────────────
@@ -172,9 +182,8 @@ async def get_decisions(
             LIMIT :limit
         """), {"child_id": child_id, "limit": limit})
 
-        decisions = []
-        for row in rows.fetchall():
-            decisions.append({
+        decisions = [
+            {
                 "id":            row[0],
                 "decision":      row[1],
                 "actions_taken": row[2],
@@ -182,6 +191,8 @@ async def get_decisions(
                 "record_hash":   row[4],
                 "polygon_tx_id": row[5],
                 "created_at":    row[6].isoformat() if row[6] else None,
-            })
+            }
+            for row in rows.fetchall()
+        ]
 
     return {"decisions": decisions}

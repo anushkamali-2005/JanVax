@@ -16,13 +16,16 @@ CRITICAL: Never crash the scheduler on a single job failure.
 """
 
 import asyncio
+import logging
 import feedparser
 from datetime import datetime, timezone, date
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-_scheduler = None
+logger = logging.getLogger("vaxguard.scheduler")
+
+_scheduler: AsyncIOScheduler | None = None
 
 # WHO Disease Outbreak News RSS — free and public
 WHO_RSS_URL = "https://www.who.int/rss-feeds/news-releases.xml"
@@ -77,14 +80,30 @@ def start_scheduler():
     )
 
     _scheduler.start()
-    print("[scheduler] All jobs started.")
+    logger.info("All scheduler jobs started.")
 
 
 def stop_scheduler():
     global _scheduler
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
-        print("[scheduler] Stopped.")
+        logger.info("Scheduler stopped.")
+
+
+def get_scheduler_status() -> dict:
+    """Returns live scheduler status for the /reminders/status endpoint."""
+    if not _scheduler or not _scheduler.running:
+        return {"scheduler_running": False, "jobs": []}
+
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id":       job.id,
+            "name":     job.name,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+        })
+
+    return {"scheduler_running": True, "jobs": jobs}
 
 
 # ── Job 1: Daily Reminders ────────────────────────────────────────────────────
@@ -100,11 +119,11 @@ async def send_daily_reminders():
     from services.firebase_service import get_db
     from firebase_admin import firestore
 
-    print(f"[reminder] Starting daily reminder job: {datetime.now(timezone.utc)}")
+    logger.info("Starting daily reminder job at %s", datetime.now(timezone.utc))
 
     try:
         children = await get_all_children_due_today()
-        print(f"[reminder] Found {len(children)} children due today")
+        logger.info("Found %d children due today", len(children))
 
         sent_count = 0
         for child in children:
@@ -145,13 +164,13 @@ async def send_daily_reminders():
                     await increment_reminder_ignore(child_id)
 
             except Exception as e:
-                print(f"[reminder] Error for child {child.get('id')}: {e}")
+                logger.error(f"[reminder] Error for child {child.get('id')}: {e}")
                 continue
 
-        print(f"[reminder] Sent {sent_count} reminders.")
+        logger.info("Sent %d reminders.", sent_count)
 
     except Exception as e:
-        print(f"[reminder] Job failed: {e}")
+        logger.error(f"[reminder] Job failed: {e}")
 
 
 # ── Job 2: Batch Risk Scoring ─────────────────────────────────────────────────
@@ -166,7 +185,7 @@ async def batch_risk_scoring():
     from ml.features import engineer_features
     from ml.shap_explainer import get_risk_score
 
-    print(f"[batch_ml] Starting batch risk scoring: {datetime.now(timezone.utc)}")
+    logger.info("Starting batch risk scoring at %s", datetime.now(timezone.utc))
 
     try:
         db = get_db()
@@ -190,13 +209,13 @@ async def batch_risk_scoring():
                 count += 1
 
             except Exception as e:
-                print(f"[batch_ml] Error for child {doc.id}: {e}")
+                logger.error(f"[batch_ml] Error for child {doc.id}: {e}")
                 continue
 
-        print(f"[batch_ml] Scored {count} children.")
+        logger.info("Scored %d children.", count)
 
     except Exception as e:
-        print(f"[batch_ml] Job failed: {e}")
+        logger.error(f"[batch_ml] Job failed: {e}")
 
 
 # ── Job 3: Update Outbreak Flags ──────────────────────────────────────────────
@@ -206,7 +225,7 @@ async def update_outbreak_flags():
     Parses WHO Disease Outbreak News RSS.
     Sets districtOutbreakFlag=1 on children in affected Indian districts.
     """
-    print(f"[outbreak] Fetching WHO RSS: {datetime.now(timezone.utc)}")
+    logger.info("Fetching WHO RSS at %s", datetime.now(timezone.utc))
 
     try:
         feed = feedparser.parse(WHO_RSS_URL)
@@ -225,7 +244,7 @@ async def update_outbreak_flags():
                 })
 
         if india_alerts:
-            print(f"[outbreak] Found {len(india_alerts)} India-relevant alerts")
+            logger.info("Found %d India-relevant outbreak alerts", len(india_alerts))
             # Store active alerts in Firestore for the frontend
             from services.firebase_service import get_db
             from firebase_admin import firestore as fs
@@ -234,10 +253,10 @@ async def update_outbreak_flags():
                 "updatedAt": fs.SERVER_TIMESTAMP,
             })
         else:
-            print("[outbreak] No India-relevant alerts found.")
+            logger.info("No India-relevant alerts found.")
 
     except Exception as e:
-        print(f"[outbreak] Job failed: {e}")
+        logger.error(f"[outbreak] Job failed: {e}")
 
 
 def _extract_disease(text: str) -> str:
@@ -302,7 +321,7 @@ async def aggregate_community_stats():
                 "state":         "maharashtra",  # TODO: derive from district
             })
 
-        print(f"[community] Aggregated {len(district_data)} districts.")
+        logger.info("Aggregated %d districts.", len(district_data))
 
     except Exception as e:
-        print(f"[community] Aggregation failed: {e}")
+        logger.error(f"[community] Aggregation failed: {e}")
