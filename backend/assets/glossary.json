@@ -1,0 +1,44 @@
+{
+    "BCG": {
+        "en": {
+            "what_is_it": "Bacillus Calmette-Guérin (BCG) vaccine is primarily used against tuberculosis.",
+            "prevents": "Tuberculosis (TB)",
+            "side_effects": "Small lump or blister at injection site, mild fever.",
+            "when_given": "At birth (or as soon as possible after birth)."
+        },
+        "hi": {
+            "what_is_it": "बैसिलस कैलमेट-गुएरिन (बीसीजी) टीका मुख्य रूप से तपेदिक के खिलाफ उपयोग किया जाता है।",
+            "prevents": "तपेदिक (टीबी)",
+            "side_effects": "इंजेक्शन वाली जगह पर छोटा सा उभार या छाला, हल्का बुखार।",
+            "when_given": "जन्म के समय (या जन्म के बाद जितनी जल्दी हो सके)।"
+        }
+    },
+    "OPV": {
+        "en": {
+            "what_is_it": "Oral Poliovirus Vaccine (OPV) is given as drops in the mouth to protect against polio.",
+            "prevents": "Polio (Poliomyelitis)",
+            "side_effects": "Extremely rare side effects, generally very safe.",
+            "when_given": "Birth, 6, 10, and 14 weeks, then boosters."
+        },
+        "hi": {
+            "what_is_it": "पोलियो से बचाने के लिए ओरल पोलियोवायरस वैक्सीन (ओपीवी) मुंह में बूंदों के रूप में दी जाती है।",
+            "prevents": "पोलियो (पोलियोमाइलाइटिस)",
+            "side_effects": "अत्यंत दुर्लभ दुष्प्रभाव, आम तौर पर बहुत सुरक्षित।",
+            "when_given": "जन्म, 6, 10 और 14 सप्ताह, फिर बूस्टर।"
+        }
+    },
+    "MMR": {
+        "en": {
+            "what_is_it": "MMR vaccine protects against three serious viral infections.",
+            "prevents": "Measles, Mumps, and Rubella",
+            "side_effects": "Mild fever, rash, or swollen glands (7-12 days after).",
+            "when_given": "9 months and 15 months."
+        },
+        "hi": {
+            "what_is_it": "एमएमआर टीका तीन गंभीर वायरल संक्रमणों से बचाता है।",
+            "prevents": "खसरा, कण्ठमाला (Mumps) और रूबेला",
+            "side_effects": "हल्का बुखार, दाने, या ग्रंथियों में सूजन (7-12 दिन बाद)।",
+            "when_given": "9 महीने और 15 महीने।"
+        }
+    }
+}

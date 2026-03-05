@@ -1,0 +1,22 @@
+artifact_path: file:C:/Users/aksha/JanVax/backend/ml/mlruns/1/models/m-1cf988c4ab13418f8a62f9dee1e4f955/artifacts
+flavors:
+  python_function:
+    data: model.ubj
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.13.9
+  xgboost:
+    code: null
+    data: model.ubj
+    model_class: xgboost.sklearn.XGBClassifier
+    model_format: ubj
+    xgb_version: 3.2.0
+mlflow_version: 3.10.1
+model_id: m-1cf988c4ab13418f8a62f9dee1e4f955
+model_size_bytes: 250779
+model_uuid: m-1cf988c4ab13418f8a62f9dee1e4f955
+prompts: null
+run_id: 9dfb79880b1f4d1f8062e841396478fc
+utc_time_created: '2026-03-05 12:26:23.147412'
