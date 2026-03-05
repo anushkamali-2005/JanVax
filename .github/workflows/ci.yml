@@ -1,0 +1,157 @@
+name: CI — Lint, Test, and Retrain ML Model
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly retraining every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+jobs:
+  # ── Job 1: Frontend Lint & Build ─────────────────────────────────────────────
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+
+  # ── Job 2: Backend Tests ──────────────────────────────────────────────────────
+  backend:
+    name: Backend (FastAPI + Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Generate synthetic training data
+        run: python ml/generate_training_data.py
+
+      - name: Run health check test
+        run: |
+          python -c "
+          from fastapi.testclient import TestClient
+          import sys, os
+          sys.path.insert(0, '.')
+          os.environ['FIREBASE_CREDENTIALS_PATH'] = '/dev/null'
+          os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+          # quick import check
+          from main import app
+          print('Backend imports OK')
+          "
+
+
+  # ── Job 3: ML Model Retrain + Accuracy Gate ───────────────────────────────────
+  retrain-model:
+    name: Retrain XGBoost Risk Model
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[retrain]')
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install xgboost scikit-learn pandas numpy mlflow joblib shap
+
+      - name: Generate fresh synthetic data
+        run: python ml/generate_training_data.py
+
+      - name: Retrain model
+        run: python ml/train.py
+        env:
+          MLFLOW_TRACKING_URI: ./ml/mlflow.db
+
+      - name: Check accuracy gate
+        run: |
+          python -c "
+          import mlflow
+          client = mlflow.tracking.MlflowClient('./ml/mlflow.db')
+          runs = client.search_runs('0', order_by=['start_time DESC'], max_results=1)
+          if runs:
+              acc = float(runs[0].data.metrics.get('val_accuracy', 0))
+              print(f'Validation accuracy: {acc:.4f}')
+              if acc < 0.90:
+                  print('ACCURACY GATE FAILED — model not deployed')
+                  exit(1)
+              print('ACCURACY GATE PASSED')
+          "
+
+      - name: Upload trained model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgb_model
+          path: backend/backend/models/xgb_model.pkl
+          retention-days: 30
+
+
+  # ── Job 4: Smart Contract Tests ───────────────────────────────────────────────
+  blockchain:
+    name: Blockchain (Hardhat)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blockchain
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: blockchain/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      - name: Run contract tests
+        run: npx hardhat test

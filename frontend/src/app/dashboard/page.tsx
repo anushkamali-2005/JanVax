@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Plus, Bell, Settings, LogOut, ChevronRight, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { Shield, Plus, Bell, Settings, LogOut, ChevronRight, AlertTriangle, CheckCircle, Clock, Globe, Smartphone } from "lucide-react";
 import { onAuthStateChanged, logOut, subscribeToChildren, db } from "@/lib/firebase";
 import { motion, AnimatePresence } from "framer-motion";
 

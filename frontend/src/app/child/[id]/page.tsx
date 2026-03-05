@@ -11,6 +11,7 @@ import { db, onAuthStateChanged } from "@/lib/firebase";
 import { doc, getDoc, collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { predictRisk, explainRisk, triggerAgent, type PredictResponse, type ExplainResponse } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
+import QRVaccinePassport from "@/components/QRVaccinePassport";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, ResponsiveContainer, Cell, ReferenceLine
@@ -25,7 +26,7 @@ export default function ChildDetailsPage() {
     const [analyzing, setAnalyzing] = useState(false);
     const [prediction, setPrediction] = useState<PredictResponse | null>(null);
     const [explanation, setExplanation] = useState<ExplainResponse | null>(null);
-    const [activeTab, setActiveTab] = useState<"history" | "analysis" | "agent">("history");
+    const [activeTab, setActiveTab] = useState<"history" | "analysis" | "agent" | "passport">("history");
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged((user) => {
@@ -195,6 +196,12 @@ export default function ChildDetailsPage() {
                                 className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === "agent" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:text-white"}`}
                             >
                                 Agent Decision
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("passport")}
+                                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === "passport" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:text-white"}`}
+                            >
+                                QR Passport
                             </button>
                         </div>
 
@@ -387,6 +394,23 @@ export default function ChildDetailsPage() {
                                             View Agent History <ChevronRight className="w-5 h-5" />
                                         </button>
                                     </div>
+                                </motion.div>
+                            )}
+
+                            {activeTab === "passport" && (
+                                <motion.div
+                                    key="passport"
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                >
+                                    <QRVaccinePassport
+                                        childId={id as string}
+                                        childName={child?.name || ""}
+                                        lastVaccine={child?.lastVaccine || records[0]?.vaccineName || "BCG"}
+                                        riskScore={child?.riskScore || 0}
+                                        verificationHash={prediction?.record_hash || ""}
+                                    />
                                 </motion.div>
                             )}
                         </AnimatePresence>
