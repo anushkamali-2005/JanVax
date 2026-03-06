@@ -13,6 +13,7 @@ const NAV_LINKS = [
     { href: "/map", label: "Centers" },
     { href: "/community", label: "Community" },
     { href: "/glossary", label: "Glossary" },
+    { href: "/explainability", label: "XAI" },
 ];
 
 const LANGUAGES = [
