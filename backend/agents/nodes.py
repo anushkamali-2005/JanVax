@@ -14,16 +14,16 @@ BUGS FIXED vs original:
 """
 
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from agents.tools import find_nearest_center, send_sms, send_push, alert_doctor
 from agents.memory import save_family_memory
 
 # ── Shared LLM instance ───────────────────────────────────────────────────────
-llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
     temperature=0.1,
-    google_api_key=os.getenv("GEMINI_API_KEY"),
+    api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 
