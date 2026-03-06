@@ -11,7 +11,7 @@ import { db, onAuthStateChanged } from "@/lib/firebase";
 import { doc, getDoc, collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { predictRisk, explainRisk, triggerAgent, type PredictResponse, type ExplainResponse } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
-import QRVaccinePassport from "@/components/QRVaccinePassport";
+import AgentFeed from "@/components/AgentFeed";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, ResponsiveContainer, Cell, ReferenceLine
@@ -26,7 +26,7 @@ export default function ChildDetailsPage() {
     const [analyzing, setAnalyzing] = useState(false);
     const [prediction, setPrediction] = useState<PredictResponse | null>(null);
     const [explanation, setExplanation] = useState<ExplainResponse | null>(null);
-    const [activeTab, setActiveTab] = useState<"history" | "analysis" | "agent" | "passport">("history");
+    const [activeTab, setActiveTab] = useState<"history" | "analysis" | "agent">("history");
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged((user) => {
@@ -174,6 +174,9 @@ export default function ChildDetailsPage() {
                                 Our <strong>VaxGuard AI</strong> model retrains weekly. This prediction is based on Model v2.3 with 94.2% accuracy on Indian demographics.
                             </p>
                         </div>
+
+                        {/* Live AI Negotiation Feed */}
+                        {child?.id && <AgentFeed childId={child.id} />}
                     </div>
 
                     {/* Right Column: Tabs & Content */}
@@ -196,12 +199,6 @@ export default function ChildDetailsPage() {
                                 className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === "agent" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:text-white"}`}
                             >
                                 Agent Decision
-                            </button>
-                            <button
-                                onClick={() => setActiveTab("passport")}
-                                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === "passport" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-400 hover:text-white"}`}
-                            >
-                                QR Passport
                             </button>
                         </div>
 
@@ -311,7 +308,7 @@ export default function ChildDetailsPage() {
                                                 </h3>
                                                 <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 relative z-10">
                                                     <p className="text-lg leading-relaxed text-white/90 italic">
-                                                        "{explanation.nl_explanation}"
+                                                        &quot;{explanation.nl_explanation}&quot;
                                                     </p>
                                                     <div className="mt-4 flex items-center gap-2 text-white/60 text-sm font-bold uppercase tracking-widest">
                                                         <RefreshCcw className="w-3 h-3" />
@@ -369,7 +366,7 @@ export default function ChildDetailsPage() {
                                         </div>
                                         <h3 className="text-2xl font-bold mb-4">Multi-Agent Debate Pipeline</h3>
                                         <p className="text-slate-400 max-w-lg mx-auto mb-10">
-                                            Our system doesn't just predict—it debates. Independent AI agents analyze risk, challenge assumptions, and decide on the best course of action.
+                                            Our system doesn&apos;t just predict—it debates. Independent AI agents analyze risk, challenge assumptions, and decide on the best course of action.
                                         </p>
 
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -380,7 +377,7 @@ export default function ChildDetailsPage() {
                                             </div>
                                             <div className="p-6 rounded-2xl bg-white/5 border border-white/10">
                                                 <AlertTriangle className="w-6 h-6 text-rose-400 mb-3 mx-auto" />
-                                                <div className="font-bold">Devil's Advocate</div>
+                                                <div className="font-bold">Devil&apos;s Advocate</div>
                                                 <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">Tests Assumptions</div>
                                             </div>
                                             <div className="p-6 rounded-2xl bg-white/5 border border-white/10">
@@ -394,23 +391,6 @@ export default function ChildDetailsPage() {
                                             View Agent History <ChevronRight className="w-5 h-5" />
                                         </button>
                                     </div>
-                                </motion.div>
-                            )}
-
-                            {activeTab === "passport" && (
-                                <motion.div
-                                    key="passport"
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -10 }}
-                                >
-                                    <QRVaccinePassport
-                                        childId={id as string}
-                                        childName={child?.name || ""}
-                                        lastVaccine={child?.lastVaccine || records[0]?.vaccineName || "BCG"}
-                                        riskScore={child?.riskScore || 0}
-                                        verificationHash={prediction?.record_hash || ""}
-                                    />
                                 </motion.div>
                             )}
                         </AnimatePresence>

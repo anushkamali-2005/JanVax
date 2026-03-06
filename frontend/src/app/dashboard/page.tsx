@@ -7,40 +7,33 @@ import { onAuthStateChanged, logOut, subscribeToChildren, db } from "@/lib/fireb
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function Dashboard() {
-    const [user, setUser] = useState<any>(null);
+    const [user, setUser] = useState<any>({ displayName: "Demo User", email: "demo@janvax.in" });
     const [children, setChildren] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
-        const unsubscribeAuth = onAuthStateChanged((user) => {
-            if (!user) {
-                router.push("/");
-                return;
-            }
-            setUser(user);
-
-            const unsubscribeChildren = subscribeToChildren(user.uid, (data) => {
-                setChildren(data);
-                setLoading(false);
+        // Try Firebase in background — upgrades from demo to real user if signed in
+        try {
+            const unsubscribeAuth = onAuthStateChanged((firebaseUser) => {
+                if (firebaseUser) {
+                    setUser(firebaseUser);
+                    const unsubscribeChildren = subscribeToChildren(firebaseUser.uid, (data) => {
+                        setChildren(data);
+                    });
+                    return () => unsubscribeChildren();
+                }
             });
-
-            return () => unsubscribeChildren();
-        });
-
-        return () => unsubscribeAuth();
+            return () => unsubscribeAuth();
+        } catch (e) {
+            // Firebase unavailable — demo mode continues
+        }
     }, [router]);
 
     const handleLogout = async () => {
         await logOut();
         router.push("/");
     };
-
-    if (loading) return (
-        <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-    );
 
     return (
         <div className="min-h-screen bg-[#0f172a] text-white">

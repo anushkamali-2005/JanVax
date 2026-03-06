@@ -123,5 +123,25 @@ async def create_tables():
 
             CREATE INDEX IF NOT EXISTS idx_audit_hash
                 ON audit_hashes(record_hash);
+
+            CREATE TABLE IF NOT EXISTS scheduler_sessions (
+                id              VARCHAR(64)  PRIMARY KEY,
+                child_id        VARCHAR(128) NOT NULL,
+                parent_phone    VARCHAR(32)  NOT NULL,
+                risk_score      INTEGER      DEFAULT 0,
+                attempt_number  INTEGER      DEFAULT 1,
+                offered_slot    TEXT,
+                offered_centre  TEXT,
+                status          VARCHAR(32)  DEFAULT 'pending',
+                confirmed_slot  TEXT,
+                agent_log       TEXT         DEFAULT '',
+                created_at      TIMESTAMPTZ  DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_scheduler_child
+                ON scheduler_sessions(child_id);
+
+            CREATE INDEX IF NOT EXISTS idx_scheduler_phone
+                ON scheduler_sessions(parent_phone);
         """))
     print("[db] Tables created / verified.")

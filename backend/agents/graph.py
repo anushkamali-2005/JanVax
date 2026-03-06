@@ -20,6 +20,7 @@ from agents.nodes import (
     action_node,
     memory_node,
 )
+from agents.scheduler import scheduler_node
 
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -46,6 +47,13 @@ class AgentState(TypedDict):
     actions_taken:      Optional[dict]
     debate_log:         Optional[List[dict]]
 
+    # ── Filled by scheduler_node ──────────────────────────────────────────────
+    scheduler_session_id: Optional[str]   # UUID of the SchedulerSession row
+    sms_sent:             Optional[bool]  # True once first SMS offer fired
+    sms_confirmed:        Optional[bool]  # True once parent replies YES
+    offered_slot:         Optional[str]   # human-readable slot string offered
+    offered_centre:       Optional[str]   # centre name
+
 
 # ── Routing function ──────────────────────────────────────────────────────────
 
@@ -64,18 +72,19 @@ def build_agent_graph() -> Any:
     # Register nodes
     graph.add_node("risk_analyst",    risk_analyst_node)
     graph.add_node("devils_advocate", devils_advocate_node)
-    graph.add_node("decision",        decision_node)
+    graph.add_node("decider",         decision_node)
     graph.add_node("action",          action_node)
+    graph.add_node("scheduler",       scheduler_node)
     graph.add_node("memory",          memory_node)
 
     # Linear edges
     graph.set_entry_point("risk_analyst")
     graph.add_edge("risk_analyst",    "devils_advocate")
-    graph.add_edge("devils_advocate", "decision")
+    graph.add_edge("devils_advocate", "decider")
 
     # Conditional: HIGH_RISK → action, else skip to memory
     graph.add_conditional_edges(
-        "decision",
+        "decider",
         route_after_decision,
         {
             "action": "action",
@@ -83,8 +92,10 @@ def build_agent_graph() -> Any:
         }
     )
 
-    graph.add_edge("action", "memory")
-    graph.add_edge("memory", END)
+    # action → scheduler (sends SMS + saves session), then → memory → END
+    graph.add_edge("action",     "scheduler")
+    graph.add_edge("scheduler",  "memory")
+    graph.add_edge("memory",     END)
 
     return graph.compile()
 
