@@ -76,8 +76,8 @@ export default function GlossaryPage() {
                             key={lang.code}
                             onClick={() => setLanguage(lang.code)}
                             className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${language === lang.code
-                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 scale-105'
-                                    : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/5'
+                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 scale-105'
+                                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white border border-white/5'
                                 }`}
                         >
                             <span className="text-lg">{lang.flag}</span>
@@ -121,7 +121,7 @@ export default function GlossaryPage() {
                 {search && filtered.length === 0 && !aiResult && (
                     <div className="bg-purple-900/20 border border-purple-500/30 p-8 rounded-3xl text-center animate-in fade-in">
                         <AlertCircle className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
-                        <p className="text-slate-300 font-medium mb-6">"{search}" is not in our local database.</p>
+                        <p className="text-slate-300 font-medium mb-6">&quot;{search}&quot; is not in our local database.</p>
                         <button
                             onClick={handleAskAI}
                             disabled={loading}

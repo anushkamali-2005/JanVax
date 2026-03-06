@@ -147,8 +147,8 @@ export async function verifyHash(hash: string): Promise<VerifyResponse> {
     return apiFetch<VerifyResponse>(`/verify/${hash}`, {}, false);
 }
 
-export async function verifyChildRecords(childId: string): Promise<{ records: any[] }> {
-    return apiFetch(`/verify/child/${childId}`, {}, false);
+export async function verifyChildRecords(childId: string): Promise<ChildVerifyResponse> {
+    return apiFetch<ChildVerifyResponse>(`/verify/child/${childId}`, {}, false);
 }
 
 export async function storeHash(
