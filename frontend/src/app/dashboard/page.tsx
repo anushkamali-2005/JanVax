@@ -260,7 +260,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Global Features Section */}
-                <div className="mt-20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="mt-20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     <div className="p-8 rounded-[2.5rem] bg-gradient-to-br from-indigo-600/20 to-blue-600/20 border border-white/10 group cursor-pointer" onClick={() => router.push("/map")}>
                         <div className="flex items-center gap-4 mb-6">
                             <div className="p-4 bg-indigo-500 rounded-3xl group-hover:scale-110 transition-transform shadow-lg shadow-indigo-500/20">
@@ -325,6 +325,23 @@ export default function Dashboard() {
                         <div className="flex items-center justify-end">
                             <div className="px-4 py-2 bg-white/10 rounded-xl text-sm font-bold flex items-center gap-2 group-hover:bg-white/20 transition-all">
                                 View XAI <ChevronRight className="w-4 h-4" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-8 rounded-[2.5rem] bg-gradient-to-br from-blue-600/20 to-cyan-600/20 border border-white/10 group cursor-pointer" onClick={() => router.push("/verify")}>
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="p-4 bg-blue-500 rounded-3xl group-hover:scale-110 transition-transform shadow-lg shadow-blue-500/20">
+                                <Shield className="w-8 h-8 text-white" />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-bold">Blockchain Verifier</h3>
+                                <p className="text-slate-400 text-sm">Check authenticity of any record</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end">
+                            <div className="px-4 py-2 bg-white/10 rounded-xl text-sm font-bold flex items-center gap-2 group-hover:bg-white/20 transition-all">
+                                Verify Record <ChevronRight className="w-4 h-4" />
                             </div>
                         </div>
                     </div>
