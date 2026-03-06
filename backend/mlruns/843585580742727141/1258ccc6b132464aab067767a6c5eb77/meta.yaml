@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/khushikhanna/Desktop/JanVax/backend/mlruns/843585580742727141/1258ccc6b132464aab067767a6c5eb77/artifacts
+end_time: 1772790415835
+entry_point_name: ''
+experiment_id: '843585580742727141'
+lifecycle_stage: active
+run_id: 1258ccc6b132464aab067767a6c5eb77
+run_name: persistent-sloth-369
+run_uuid: 1258ccc6b132464aab067767a6c5eb77
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1772790414148
+status: 3
+tags: []
+user_id: khushikhanna

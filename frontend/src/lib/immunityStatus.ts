@@ -3,14 +3,17 @@ import vaccineSchedule from '@/data/vaccine_schedule.json';
 export type ImmunityStatus = 'green' | 'yellow' | 'red' | 'unknown';
 
 export function getImmunityStatus(child: any): ImmunityStatus {
-    const dob = new Date(child.dateOfBirth);
+    const rawDob = child?.dateOfBirth || child?.dob;
+    if (!rawDob) return 'unknown';
+    const dob = new Date(rawDob);
+    if (isNaN(dob.getTime())) return 'unknown';
+
     const today = new Date();
     const given = new Set((child.vaccines || []).map((v: any) => v.name.toLowerCase()));
 
     let mostUrgent: 'green' | 'yellow' | 'red' = 'green';
 
     for (const milestone of vaccineSchedule) {
-        // Note: The vaccine_schedule.json uses 'offsetDays', the doc used 'days_offset'. Adapting to match our existing JSON file.
         const dueDate = new Date(dob);
         dueDate.setDate(dueDate.getDate() + (milestone as any).offsetDays);
         const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / 86400000);
@@ -25,7 +28,11 @@ export function getImmunityStatus(child: any): ImmunityStatus {
 }
 
 export function getNextDueVaccine(child: any): { name: string; daysUntil: number } | null {
-    const dob = new Date(child.dateOfBirth);
+    const rawDob = child?.dateOfBirth || child?.dob;
+    if (!rawDob) return null;
+    const dob = new Date(rawDob);
+    if (isNaN(dob.getTime())) return null;
+
     const today = new Date();
     const given = new Set((child.vaccines || []).map((v: any) => v.name.toLowerCase()));
 

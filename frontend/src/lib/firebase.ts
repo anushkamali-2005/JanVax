@@ -121,6 +121,26 @@ export function subscribeToChildren(
     parentUid: string,
     callback: (children: any[]) => void
 ): Unsubscribe {
+    // Demo Mode Mock
+    if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true") {
+        setTimeout(() => {
+            callback([
+                {
+                    id: "arjun",
+                    name: "Arjun",
+                    dob: "2026-01-21",
+                    ageMonths: 14,
+                    gender: "male",
+                    district: "pune",
+                    state: "Maharashtra",
+                    riskScore: 78,
+                    createdAt: new Date().toISOString(),
+                }
+            ]);
+        }, 100);
+        return () => { };
+    }
+
     // Real-time listener — fires immediately + on every change
     const q = query(
         collection(db, "children"),
@@ -165,6 +185,19 @@ export function subscribeToChildRecords(
     childId: string,
     callback: (records: any[]) => void
 ): Unsubscribe {
+    // Demo Mode Mock
+    if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true" && childId === "arjun") {
+        setTimeout(() => {
+            callback([
+                { id: "v1", vaccineName: "BCG", vaccineCode: "BCG", dateGiven: "2024-01-15", verified: true },
+                { id: "v2", vaccineName: "OPV Birth Dose", vaccineCode: "OPV-0", dateGiven: "2024-01-15", verified: true },
+                { id: "v3", vaccineName: "DPT Dose 1", vaccineCode: "DPT-1", dateGiven: "2024-03-01", verified: true },
+                { id: "v4", vaccineName: "MMR Dose 1", vaccineCode: "MMR-1", dateGiven: "2024-10-15", verified: true },
+            ]);
+        }, 100);
+        return () => { };
+    }
+
     const q = query(
         collection(db, "children", childId, "vaccineRecords"),
         orderBy("dateGiven", "desc")
@@ -176,6 +209,26 @@ export function subscribeToChildRecords(
 }
 
 export async function getChildDoc(childId: string): Promise<any> {
+    // Demo Mode Mock
+    if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true" && childId === "arjun") {
+        return {
+            id: "arjun",
+            name: "Arjun",
+            dob: "2024-01-01",
+            ageMonths: 14,
+            gender: "male",
+            district: "pune",
+            state: "Maharashtra",
+            vaccinesMissedCount: 1,
+            daysOverdue: 45,
+            districtOutbreakFlag: 1,
+            siblingHistory: 0,
+            riskScore: 78,
+            nextDueVaccine: "MMR-2",
+            nextDueDate: "2025-01-15",
+        };
+    }
+
     const ref = doc(db, "children", childId);
     const snap = await getDoc(ref);
     return snap.exists() ? { id: snap.id, ...snap.data() } : null;

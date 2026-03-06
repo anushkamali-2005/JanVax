@@ -16,8 +16,8 @@
   /* Neutrals */
   --ink: #0A0A0A;
   --ink-2: #3F3F46;
-  --ink-3: #71717A;
-  --ink-4: #A1A1AA;
+  --ink-3: #4B5563; /* Darker gray for better contrast against light cards */
+  --ink-4: #6B7280;
   --border: #E4E4E7;
   --border-light: #F4F4F5;
   --surface: #FAFAFA;

@@ -45,22 +45,22 @@ async function apiFetch<T>(
 export interface PredictRequest {
     child_id: string;
     age_months: number;
-    gender: string;
-    vaccines_missed_count: number;
-    days_overdue: number;
-    district_outbreak_flag: number;
-    sibling_history: number;
-    top_missed_vaccine: string;
+    gender: number; // 0=female, 1=male
+    district: string;
+    vax_count: number;
+    family_history?: number;
+    missed_doses?: number;
+    language?: string;
 }
 
 export interface PredictResponse {
     child_id: string;
     model_version: string;
-    risk_scores: Record<string, number>;
-    top_disease: string;
-    top_score: number;
-    risk_level: "HIGH" | "MEDIUM" | "LOW";
-    record_hash: string;
+    shap_values: Record<string, number>;
+    risk_score: number;
+    high_risk: boolean;
+    who_flag_active: boolean;
+    blockchain_hash: string;
 }
 
 export async function predictRisk(req: PredictRequest): Promise<PredictResponse> {
@@ -71,10 +71,12 @@ export async function predictRisk(req: PredictRequest): Promise<PredictResponse>
 }
 
 export interface ExplainResponse {
-    shap_values: Record<string, number>;
-    counterfactuals: Array<{ change_description: string; new_score: number }>;
+    risk_score: number;
+    shap_features: Array<{ feature: string; contribution: number; direction: string }>;
+    counterfactuals: Array<{ scenario: number; new_score: number; action: string }>;
+    explanation: string;
     nl_explanation: string;
-    nl_explanation_en: string;
+    language: string;
 }
 
 export async function explainRisk(

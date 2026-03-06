@@ -9,14 +9,14 @@ import {
 } from "recharts";
 
 const FEATURE_LABELS: Record<string, string> = {
-    days_overdue: "Days overdue",
-    district_outbreak_flag: "District outbreak",
-    vaccines_missed_count: "Vaccines missed",
-    age_months: "Child age",
-    sibling_history: "Sibling history",
-    gender_male: "Gender",
-    state_high_risk: "State risk level",
-    reminder_ignored_count: "Ignored reminders",
+    age_months: "Child Age (Months)",
+    gender: "Gender (Male/Female)",
+    district_enc: "District Risk Profile",
+    vax_count: "Vaccines Received",
+    who_outbreak_flag: "Active Disease Outbreak",
+    family_history: "Family Health History",
+    missed_doses: "Missed Scheduled Doses",
+    risk_score: "Calculated ML Risk",
 };
 
 interface Props {

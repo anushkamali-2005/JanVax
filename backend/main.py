@@ -12,11 +12,15 @@ CRITICAL: CORS allows Vercel frontend domain + localhost for dev.
 import os
 import logging
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load .env before any other imports that might use env vars
+load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import predict, agent, verify, ocr, community, stats, reminders, glossary
+from routers import predict, agent, verify, ocr, community, stats, reminders, glossary, explain
 from services.firebase_service import init_firebase
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from routers.reminders import (
@@ -30,6 +34,37 @@ scheduler.add_job(run_7day_reminders,    'cron', hour=2, minute=30)
 scheduler.add_job(run_1day_reminders,    'cron', hour=2, minute=35)
 scheduler.add_job(run_day_of_reminders,  'cron', hour=2, minute=40)
 scheduler.add_job(run_overdue_followups, 'cron', hour=2, minute=45)
+
+from services.who_feed import fetch_who_flag
+# scheduler.add_job(fetch_who_flag, 'interval', hours=6)
+# fetch_who_flag()   # Removing synchronous call that hangs startup
+
+from routers.predict import predict_risk, ChildInput
+from firebase_admin import firestore
+
+async def score_all_children():
+    """Nightly APScheduler job — runs XGBoost on every child in Firestore."""
+    db_fs = firestore.client()
+    children = db_fs.collection('children').stream()
+    count = 0
+    for doc in children:
+        child = doc.to_dict()
+        try:
+            await predict_risk(ChildInput(
+                child_id       = doc.id,
+                age_months     = child.get('ageMonths', 12),
+                gender         = 1 if child.get('gender','')=='male' else 0,
+                district       = child.get('district', 'Pune'),
+                vax_count      = len(child.get('vaccines', [])),
+                family_history = int(child.get('familyHistory', 0)),
+                missed_doses   = int(child.get('missedDoses', 0)),
+            ))
+            count += 1
+        except Exception as e:
+            print(f'Scoring error for {doc.id}: {e}')
+    print(f'Nightly scoring complete: {count} children scored.')
+
+scheduler.add_job(score_all_children, 'cron', hour=20, minute=30)  # 2am IST
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -95,6 +130,7 @@ app.include_router(community.router,  prefix="/community", tags=["Community"])
 app.include_router(stats.router,      prefix="",           tags=["MLOps"])
 app.include_router(reminders.router,  prefix="/reminders", tags=["Reminders"])
 app.include_router(glossary.router,   prefix="",           tags=["Glossary"])
+app.include_router(explain.router,    prefix="",           tags=["ML Explain"])
 
 
 from fastapi.responses import RedirectResponse

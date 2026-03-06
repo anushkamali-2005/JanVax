@@ -1,0 +1,20 @@
+artifact_path: xgb_risk_model
+flavors:
+  python_function:
+    data: model.xgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.9.6
+  xgboost:
+    code: null
+    data: model.xgb
+    model_class: xgboost.sklearn.XGBClassifier
+    model_format: xgb
+    xgb_version: 2.0.3
+mlflow_version: 2.12.2
+model_size_bytes: 438995
+model_uuid: 6937792b1e034f399b73f830191c0e45
+run_id: 1258ccc6b132464aab067767a6c5eb77
+utc_time_created: '2026-03-06 09:46:54.159501'

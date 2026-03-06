@@ -21,12 +21,16 @@ _raw_url = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5
 # Strip any existing sslmode from URL to avoid conflicts
 _db_url   = _raw_url.split("?")[0]
 
+# Handle SSL mode dynamically based on host
+is_localhost = "localhost" in _db_url or "127.0.0.1" in _db_url
+ssl_mode = "prefer" if is_localhost else "require"
+
 engine = create_engine(
     _db_url,
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,
-    connect_args={"sslmode": "require"},
+    connect_args={"sslmode": ssl_mode},
 )
 SessionLocal = sessionmaker(bind=engine)
 
@@ -50,3 +54,18 @@ class SchedulerSession(Base):
     confirmed_slot = Column(Text,        nullable=True)
     agent_log      = Column(Text,        default="")       # newline-separated timestamped log
     created_at     = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class PredictionLog(Base):
+    """
+    Audit log for XGBoost risk scores and SHAP explainability variables.
+    """
+    __tablename__ = "prediction_logs"
+
+    id              = Column(String(64), primary_key=True)
+    child_id        = Column(String(128), nullable=False, index=True)
+    risk_score      = Column(Integer, default=0)
+    shap_values     = Column(Text, nullable=True)
+    model_version   = Column(String(32), default='v2.3')
+    blockchain_hash = Column(String(128), nullable=True)
+    action_taken    = Column(String(64), default='pending')
+    created_at      = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

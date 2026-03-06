@@ -12,8 +12,8 @@ import {
 import { onAuthStateChanged, auth, subscribeToChildRecords, getChildDoc } from "@/lib/firebase";
 import { doc, getDoc, collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import Nav from "@/components/Nav";
+import RiskCard from "@/components/RiskCard";
 import RiskScoreCard from "@/components/RiskScoreCard";
-import SHAPChart from "@/components/SHAPChart";
 import QRVaccinePassport from "@/components/QRVaccinePassport";
 import AgentFeed from "@/components/AgentFeed";
 import { predictRisk, explainRisk, triggerAgent, type PredictResponse, type ExplainResponse } from "@/lib/api";
@@ -38,8 +38,11 @@ export default function ChildPage() {
     const [language, setLanguage] = useState("en");
 
     useEffect(() => {
-        // demo mode bypass
-        if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true") {
+        // demo mode bypass 
+        // If they are visiting /child/arjun specifically, we force demo mode on for them
+        if (typeof window !== "undefined" && (localStorage.getItem("janvax_demo_mode") === "true" || id === "arjun")) {
+            if (id === "arjun") localStorage.setItem("janvax_demo_mode", "true");
+
             getChildDoc(id as string).then(data => {
                 setChild(data);
                 setLoading(false);
@@ -78,12 +81,12 @@ export default function ChildPage() {
             const pred = await predictRisk({
                 child_id: id as string,
                 age_months: child.ageMonths,
-                gender: child.gender,
-                vaccines_missed_count: child.vaccinesMissedCount || 0,
-                days_overdue: child.daysOverdue || 0,
-                district_outbreak_flag: child.districtOutbreakFlag || 0,
-                sibling_history: child.siblingHistory || 0,
-                top_missed_vaccine: child.nextDueVaccine || "None",
+                gender: child.gender === 'male' ? 1 : 0,
+                district: child.district || 'Pune',
+                vax_count: child.vaccines?.length || 0,
+                family_history: child.siblingHistory ? 1 : 0,
+                missed_doses: child.vaccinesMissedCount || 0,
+                language: language
             });
             setPrediction(pred);
 
@@ -200,78 +203,19 @@ export default function ChildPage() {
                                     exit={{ opacity: 0, y: -10 }}
                                     className="space-y-6"
                                 >
-                                    <div className="p-6 rounded-3xl bg-blue-600/10 border border-blue-600/20 flex gap-4">
-                                        <Info className="w-6 h-6 text-blue-400 shrink-0" />
-                                        <p className="text-sm text-blue-200 leading-relaxed font-medium">
-                                            Our <strong>VaxGuard AI</strong> model retrains weekly. This prediction is based on Model v2.3 with 94.2% accuracy on Indian demographics.
-                                        </p>
-                                    </div>
-
-                                    {explanation ? (
-                                        <>
-                                            <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8">
-                                                <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
-                                                    <BarChart3 className="w-6 h-6 text-blue-400" />
-                                                    Feature Weights (SHAP)
-                                                </h3>
-                                                <div className="bg-white/5 rounded-2xl p-4">
-                                                    <SHAPChart shapValues={explanation.shap_values} />
-                                                </div>
-                                            </div>
-
-                                            {/* Gemini NL Explanation */}
-                                            <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
-                                                <div className="absolute -right-20 -bottom-20 opacity-10 group-hover:scale-110 transition-transform duration-700">
-                                                    <MessageSquare className="w-80 h-80" />
-                                                </div>
-                                                <h3 className="text-2xl font-bold mb-4 flex items-center gap-3">
-                                                    <Zap className="w-8 h-8 text-amber-300" />
-                                                    AI Explainer
-                                                </h3>
-                                                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 relative z-10">
-                                                    <p className="text-lg leading-relaxed text-white/90 italic">
-                                                        &quot;{explanation.nl_explanation}&quot;
-                                                    </p>
-                                                    <div className="mt-4 flex items-center gap-2 text-white/60 text-sm font-bold uppercase tracking-widest">
-                                                        <RefreshCcw className="w-3 h-3" />
-                                                        Powered by Google Gemini
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Counterfactuals */}
-                                            <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8">
-                                                <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
-                                                    <Clock className="w-6 h-6 text-amber-400" />
-                                                    What can you do? (Counterfactuals)
-                                                </h3>
-                                                <div className="grid md:grid-cols-2 gap-4">
-                                                    {explanation.counterfactuals.map((cf, i) => (
-                                                        <div key={i} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
-                                                            <p className="text-slate-300 mb-3 leading-relaxed">{cf.change_description}</p>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-bold text-slate-500">Risk drops to:</span>
-                                                                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-md font-black text-sm">{cf.new_score}%</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="py-20 text-center bg-slate-900/50 rounded-[2.5rem] border-2 border-dashed border-white/10 flex flex-col items-center">
-                                            <Zap className="w-12 h-12 text-slate-700 mb-4" />
-                                            <h3 className="text-xl font-bold text-slate-400 mb-2">No Analysis Data</h3>
-                                            <p className="text-slate-500 max-w-xs mb-8">Run the AI analysis engine to see feature weights and natural language explanations.</p>
-                                            <button
-                                                onClick={runAnalysis}
-                                                disabled={analyzing}
-                                                className="px-8 py-3 bg-blue-600 hover:bg-blue-500 transition-all rounded-2xl font-bold shadow-xl shadow-blue-600/20 disabled:opacity-50"
-                                            >
-                                                {analyzing ? "Analyzing..." : "Run Engine"}
-                                            </button>
-                                        </div>
-                                    )}
+                                    <RiskCard
+                                        childId={id as string}
+                                        childName={child?.firstName || "Child"}
+                                        features={{
+                                            age_months: child?.ageMonths || 12,
+                                            gender: child?.gender === 'male' ? 1 : 0,
+                                            district: child?.district || 'Pune',
+                                            vax_count: child?.vaccines?.length || 0,
+                                            family_history: child?.siblingHistory ? 1 : 0,
+                                            missed_doses: child?.vaccinesMissedCount || 0
+                                        }}
+                                        language={language}
+                                    />
                                 </motion.div>
                             )}
 
@@ -346,6 +290,14 @@ export default function ChildPage() {
                                 riskScore: child.riskScore || 0,
                                 riskDisease: child.riskDisease || "",
                                 modelVersion: child.modelVersion
+                            }}
+                            features={{
+                                age_months: child?.ageMonths || 12,
+                                gender: child?.gender === 'male' ? 1 : 0,
+                                district: child?.district || 'Pune',
+                                vax_count: child?.vaccines?.length || 0,
+                                family_history: child?.siblingHistory ? 1 : 0,
+                                missed_doses: child?.vaccinesMissedCount || 0
                             }}
                             language={language}
                         />

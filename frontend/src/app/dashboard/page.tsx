@@ -26,17 +26,20 @@ export default function Dashboard() {
     const router = useRouter();
 
     const STATUS_CONFIG: Record<string, any> = {
-        green: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', dot: 'bg-emerald-500 text-white', label: 'Up to date', text: 'text-emerald-400' },
-        yellow: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', dot: 'bg-amber-500 text-slate-900', label: 'Due soon', text: 'text-amber-400' },
-        red: { bg: 'bg-rose-500/10', border: 'border-rose-500/30', dot: 'bg-rose-500 text-white', label: 'Overdue', text: 'text-rose-400' },
-        unknown: { bg: 'bg-white/5', border: 'border-white/10', dot: 'bg-slate-500 text-white', label: 'No data', text: 'text-slate-400' },
+        green: { bg: 'bg-emerald-50', border: 'border-emerald-200', dot: 'bg-emerald-500 text-white', label: 'Up to date', text: 'text-emerald-700' },
+        yellow: { bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-500 text-slate-900', label: 'Due soon', text: 'text-amber-700' },
+        red: { bg: 'bg-rose-50', border: 'border-rose-200', dot: 'bg-rose-500 text-white', label: 'Overdue', text: 'text-rose-700' },
+        unknown: { bg: 'bg-slate-50', border: 'border-slate-200', dot: 'bg-slate-500 text-white', label: 'No data', text: 'text-slate-700' },
     };
 
     useEffect(() => {
         // demo mode bypass
         if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true") {
-            setLoading(false);
-            return;
+            const unsubscribeChildren = subscribeToChildren("demo", (data) => {
+                setChildren(data);
+                setLoading(false);
+            });
+            return () => unsubscribeChildren();
         }
 
         // Safety timeout: if auth/data takes > 5s, show the dashboard anyway
@@ -187,7 +190,7 @@ export default function Dashboard() {
                                                 {child.name?.[0]?.toUpperCase()}
                                             </div>
                                             <div className='flex-1'>
-                                                <h3 className='font-bold text-white text-2xl'>{child.name}</h3>
+                                                <h3 className='font-bold text-slate-800 text-2xl'>{child.name}</h3>
                                                 <div className="flex items-center gap-2 mt-1">
                                                     <span className={`px-2 py-0.5 rounded-md bg-white/5 text-[10px] font-bold uppercase tracking-wider border border-white/5 ${cfg.text}`}>{cfg.label}</span>
                                                 </div>
