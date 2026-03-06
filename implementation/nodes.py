@@ -2,21 +2,24 @@
 agents/nodes.py
 ---------------
 All five LangGraph node functions for VaxGuard.
-Each node takes AgentState, mutates it, returns it.
 
-CRITICAL: Every node must return the full state dict — not just what it changed.
-CRITICAL: debate_log must be initialized before appending (check for None).
-CRITICAL: LLM is gemini-1.5-flash — cheap, fast, sufficient for this task.
+BUGS FIXED vs original:
+  FIX-1  Nodes now return {**state, key: new_value} instead of mutating state
+         in-place. LangGraph compiled graphs pass an immutable state snapshot
+         to each node — mutating it then returning the same object loses updates.
+  FIX-2  debate_log built as a local list and merged into return dict.
+         The old _append_log() mutated state["debate_log"] in-place which
+         failed to persist across nodes when state is a snapshot copy.
+  FIX-3  Import changed to langchain_core.prompts (langchain.prompts deprecated).
 """
 
 import os
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from agents.tools import find_nearest_center, send_sms, send_push, alert_doctor
 from agents.memory import save_family_memory
 
 # ── Shared LLM instance ───────────────────────────────────────────────────────
-# temperature=0.1 keeps outputs consistent — this is a health system, not creative
 llm = ChatGoogleGenerativeAI(
     model="gemini-1.5-flash",
     temperature=0.1,
@@ -24,23 +27,20 @@ llm = ChatGoogleGenerativeAI(
 )
 
 
-# ── Helper ────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _append_log(state: dict, node: str, output: str) -> None:
-    """Safe append to debate_log — initializes list if None."""
-    if state.get("debate_log") is None:
-        state["debate_log"] = []
-    state["debate_log"].append({"node": node, "output": output})
+def _log_entry(node: str, output: str) -> dict:
+    return {"node": node, "output": output}
+
+def _get_log(state: dict) -> list:
+    """Returns a copy of debate_log — never None, never the original object."""
+    existing = state.get("debate_log")
+    return list(existing) if isinstance(existing, list) else []
 
 
 # ── Node 1: Risk Analyst ──────────────────────────────────────────────────────
 
 def risk_analyst_node(state: dict) -> dict:
-    """
-    Analyzes SHAP evidence and child data.
-    Argues FOR high risk if evidence supports it.
-    Must end with: VERDICT: HIGH or VERDICT: LOW
-    """
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are a child health risk analyst for an Indian vaccination system. "
@@ -61,31 +61,25 @@ def risk_analyst_node(state: dict) -> dict:
         )
     ])
 
-    child = state["child_data"]
-    chain = prompt | llm
-    result = chain.invoke({
-        "age_months":     child.get("ageMonths", 0),
-        "risk_score":     state["risk_score"],
-        "top_disease":    state["top_disease"],
-        "shap_values":    str(state["shap_values"]),
-        "outbreak_flag":  "YES" if child.get("districtOutbreakFlag", 0) else "NO",
-        "days_overdue":   child.get("daysOverdue", 0),
+    child  = state["child_data"]
+    result = (prompt | llm).invoke({
+        "age_months":      child.get("ageMonths", 0),
+        "risk_score":      state["risk_score"],
+        "top_disease":     state["top_disease"],
+        "shap_values":     str(state["shap_values"]),
+        "outbreak_flag":   "YES" if child.get("districtOutbreakFlag", 0) else "NO",
+        "days_overdue":    child.get("daysOverdue", 0),
         "vaccines_missed": child.get("vaccinesMissedCount", 0),
     })
 
-    state["analyst_output"] = result.content
-    _append_log(state, "risk_analyst", result.content)
-    return state
+    log = _get_log(state)
+    log.append(_log_entry("risk_analyst", result.content))
+    return {**state, "analyst_output": result.content, "debate_log": log}
 
 
 # ── Node 2: Devil's Advocate ──────────────────────────────────────────────────
 
 def devils_advocate_node(state: dict) -> dict:
-    """
-    Challenges the analyst's assessment.
-    Looks for false positives, borderline cases, data quality issues.
-    Must end with: CHALLENGE: VALID or CHALLENGE: WEAK
-    """
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are a medical devil's advocate. Your job is to challenge risk assessments "
@@ -106,9 +100,8 @@ def devils_advocate_node(state: dict) -> dict:
         )
     ])
 
-    child = state["child_data"]
-    chain = prompt | llm
-    result = chain.invoke({
+    child  = state["child_data"]
+    result = (prompt | llm).invoke({
         "analyst_output": state["analyst_output"],
         "risk_score":     state["risk_score"],
         "ignore_count":   child.get("reminderIgnoreCount", 0),
@@ -116,31 +109,20 @@ def devils_advocate_node(state: dict) -> dict:
         "days_overdue":   child.get("daysOverdue", 0),
     })
 
-    state["advocate_output"] = result.content
-    _append_log(state, "devils_advocate", result.content)
-    return state
+    log = _get_log(state)
+    log.append(_log_entry("devils_advocate", result.content))
+    return {**state, "advocate_output": result.content, "debate_log": log}
 
 
 # ── Node 3: Decision ──────────────────────────────────────────────────────────
 
 def decision_node(state: dict) -> dict:
     """
-    Reads analyst + advocate. Makes final call.
-    Also sets escalate_to_doctor flag if family has ignored >= 2 alerts.
-
-    Decision rules:
-      score >= 70 AND VERDICT: HIGH AND CHALLENGE: WEAK → HIGH_RISK
-      score >= 70 BUT CHALLENGE: VALID                  → MONITOR
-      score < 70                                        → LOW_RISK
-
-    Output must contain exactly one of:
-      DECISION: HIGH_RISK
-      DECISION: LOW_RISK
-      DECISION: MONITOR
-
-    And exactly one of:
-      ESCALATE: true
-      ESCALATE: false
+    Rules:
+      score >= 70 AND VERDICT: HIGH AND CHALLENGE: WEAK  → HIGH_RISK
+      score >= 70 BUT CHALLENGE: VALID                   → MONITOR
+      score < 70                                         → LOW_RISK
+    Escalates to doctor if family ignored >= 2 alerts.
     """
     prompt = ChatPromptTemplate.from_messages([
         ("system",
@@ -150,11 +132,10 @@ def decision_node(state: dict) -> dict:
          "  - Score >= 70 AND analyst VERDICT HIGH AND challenge WEAK → HIGH_RISK\n"
          "  - Score >= 70 BUT challenge VALID → MONITOR\n"
          "  - Score < 70 → LOW_RISK\n"
-         "Also: if the family has ignored 2 or more alerts, set escalation to true "
-         "(skip SMS to parent, alert doctor directly instead).\n"
-         "Your response MUST contain exactly these two lines and nothing else:\n"
-         "DECISION: HIGH_RISK\n"
-         "ESCALATE: false"
+         "Also: if the family has ignored 2 or more alerts, set escalation to true.\n"
+         "Your response MUST contain exactly these two lines:\n"
+         "DECISION: <HIGH_RISK|MONITOR|LOW_RISK>\n"
+         "ESCALATE: <true|false>"
         ),
         ("human",
          "Risk score: {risk_score}/100\n"
@@ -164,64 +145,64 @@ def decision_node(state: dict) -> dict:
         )
     ])
 
-    child = state["child_data"]
+    child        = state["child_data"]
     ignore_count = child.get("reminderIgnoreCount", 0)
 
-    chain = prompt | llm
-    result = chain.invoke({
+    result     = (prompt | llm).invoke({
         "risk_score":      state["risk_score"],
         "analyst_output":  state["analyst_output"],
         "advocate_output": state["advocate_output"],
         "ignore_count":    ignore_count,
     })
 
-    text = result.content.upper()
+    text_upper = result.content.upper()
 
-    # Parse decision — fallback to MONITOR if LLM is ambiguous
-    if "HIGH_RISK" in text:
-        state["decision"] = "HIGH_RISK"
-    elif "LOW_RISK" in text:
-        state["decision"] = "LOW_RISK"
+    if "HIGH_RISK" in text_upper:
+        decision = "HIGH_RISK"
+    elif "LOW_RISK" in text_upper:
+        decision = "LOW_RISK"
     else:
-        state["decision"] = "MONITOR"
+        decision = "MONITOR"
 
-    # Parse escalation — also force-escalate if family ignored >= 2 alerts
-    state["escalate_to_doctor"] = (
-        "ESCALATE: TRUE" in text or ignore_count >= 2
-    )
+    escalate = ("ESCALATE: TRUE" in text_upper) or (ignore_count >= 2)
 
-    _append_log(state, "decision", result.content)
-    return state
+    log = _get_log(state)
+    log.append(_log_entry("decision", result.content))
+
+    return {
+        **state,
+        "decision":           decision,
+        "escalate_to_doctor": escalate,
+        "debate_log":         log,
+    }
 
 
 # ── Node 4: Action ────────────────────────────────────────────────────────────
 
 def action_node(state: dict) -> dict:
     """
-    Only runs if decision == HIGH_RISK.
-    Fires LangChain tools: find center, send SMS or alert doctor, send push.
-
-    IMPORTANT: This node does NOT call the LLM — it only calls tools.
-    Tools are deterministic wrappers around external APIs.
+    Runs only when decision == HIGH_RISK.
+    Calls tools — no LLM calls here.
     """
-    actions = {}
-    child = state["child_data"]
+    actions        = {}
+    child          = state["child_data"]
+    nearest_center = state.get("nearest_center") or {}
 
-    # ── Tool 1: Find nearest vaccination center ────────────────────────────
+    # Tool 1: Find nearest center
     try:
         center = find_nearest_center.invoke({
             "district": child.get("district", "pune"),
             "vaccine":  state["top_disease"],
         })
-        state["nearest_center"] = center
-        actions["nearest_center"] = center.get("name", "Nearest PHC")
+        nearest_center               = center
+        actions["nearest_center"]    = center.get("name", "Nearest PHC")
         actions["appointment_booked"] = True
     except Exception as e:
-        actions["nearest_center"] = "Could not fetch center"
+        actions["nearest_center"]    = "Could not fetch center"
         actions["appointment_booked"] = False
         print(f"[action_node] find_nearest_center error: {e}")
 
-    # ── Tool 2: SMS to parent OR alert doctor (escalation path) ───────────
+    # Tool 2: SMS or doctor escalation
     if state.get("escalate_to_doctor"):
         try:
             alert_doctor.invoke({
@@ -230,10 +211,10 @@ def action_node(state: dict) -> dict:
                 "child_name": child.get("name", "Child"),
                 "risk_score": state["risk_score"],
                 "disease":    state["top_disease"],
-                "center":     state.get("nearest_center", {}),
+                "center":     nearest_center,
             })
             actions["doctor_alerted"] = True
-            actions["sms_sent"] = False
+            actions["sms_sent"]       = False
         except Exception as e:
             actions["doctor_alerted"] = False
             print(f"[action_node] alert_doctor error: {e}")
@@ -246,36 +227,44 @@ def action_node(state: dict) -> dict:
                 "center_name": actions.get("nearest_center", "your nearest PHC"),
                 "risk_score":  state["risk_score"],
             })
-            actions["sms_sent"] = True
+            actions["sms_sent"]       = True
             actions["doctor_alerted"] = False
         except Exception as e:
             actions["sms_sent"] = False
             print(f"[action_node] send_sms error: {e}")
 
-    # ── Tool 3: Web push notification ─────────────────────────────────────
+    # Tool 3: Push notification
     try:
         send_push.invoke({
             "parent_uid": state["parent_uid"],
             "title":      f"⚠️ {child.get('name', 'Your child')} needs vaccination",
-            "body":       f"Risk score: {state['risk_score']}/100 for {state['top_disease']}. Tap to see details.",
+            "body":       (
+                f"Risk score: {state['risk_score']}/100 "
+                f"for {state['top_disease']}. Tap to see details."
+            ),
         })
         actions["push_sent"] = True
     except Exception as e:
         actions["push_sent"] = False
         print(f"[action_node] send_push error: {e}")
 
-    state["actions_taken"] = actions
-    _append_log(state, "action", str(actions))
-    return state
+    log = _get_log(state)
+    log.append(_log_entry("action", str(actions)))
+
+    return {
+        **state,
+        "nearest_center": nearest_center,
+        "actions_taken":  actions,
+        "debate_log":     log,
+    }
 
 
 # ── Node 5: Memory ────────────────────────────────────────────────────────────
 
 def memory_node(state: dict) -> dict:
     """
-    Always runs (last node before END).
-    Saves interaction summary to PostgreSQL agent_memory table.
-    This is what makes the agent remember family history across sessions.
+    Always runs as last node before END.
+    Persists interaction to PostgreSQL — never crashes graph on failure.
     """
     decision    = state.get("decision", "UNKNOWN")
     actions     = state.get("actions_taken", {})
@@ -295,11 +284,11 @@ def memory_node(state: dict) -> dict:
             summary=summary,
             last_action=decision,
             ignore_count=state["child_data"].get("reminderIgnoreCount", 0),
-            escalate_direct=state.get("escalate_to_doctor", False),
+            escalate_direct=bool(state.get("escalate_to_doctor", False)),
         )
     except Exception as e:
-        # Never crash the graph on memory failure
         print(f"[memory_node] save_family_memory error: {e}")
 
-    _append_log(state, "memory", f"Saved: {summary[:100]}...")
-    return state
+    log = _get_log(state)
+    log.append(_log_entry("memory", f"Saved: {summary[:100]}..."))
+    return {**state, "debate_log": log}

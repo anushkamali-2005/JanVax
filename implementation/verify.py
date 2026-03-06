@@ -1,14 +1,17 @@
 """
 backend/routers/verify.py
 --------------------------
-POST /verify/hash  — hash a record + store on Polygon
-GET  /verify/{hash} — public endpoint, verify hash against Polygon
+POST /verify/hash              — hash a record + store on Polygon (auth required)
+GET  /verify/child/{child_id}  — all verified records for a child (public, no auth)
+GET  /verify/{record_hash}     — verify a single hash against Polygon (public)
 
-CRITICAL: GET /verify/{hash} has NO auth — school/hospital scans QR without login.
-CRITICAL: Also store in PostgreSQL audit_hashes for the audit dashboard.
+BUGS FIXED vs original:
+  FIX-1  ROUTE ORDER: /verify/{record_hash} was registered BEFORE
+         /verify/child/{child_id}. FastAPI matches routes top-to-bottom,
+         so the string "child" was being captured as record_hash.
+         Fixed: /verify/child/{child_id} is now registered FIRST.
 """
 
-import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,9 +28,9 @@ router = APIRouter()
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class StoreHashRequest(BaseModel):
-    record_json:  dict
-    entity_type:  str   # "vaccine_record" | "prediction" | "decision"
-    entity_id:    str
+    record_json: dict
+    entity_type: str   # "vaccine_record" | "prediction" | "decision"
+    entity_id:   str
 
 
 # ── POST /verify/hash ─────────────────────────────────────────────────────────
@@ -39,12 +42,11 @@ async def hash_and_store(
 ):
     """
     Computes SHA-256 hash of record_json and stores on Polygon.
-    Also writes to PostgreSQL audit_hashes table.
-    Returns hash + Polygon transaction ID.
+    Idempotent — returns existing tx_id if already stored.
     """
     record_hash = compute_hash(req.record_json)
 
-    # Check if already stored (idempotent)
+    # Check if already stored
     async with get_session() as session:
         existing = await session.execute(
             text("SELECT polygon_tx_id FROM audit_hashes WHERE record_hash = :hash"),
@@ -53,8 +55,8 @@ async def hash_and_store(
         row = existing.fetchone()
         if row and row[0]:
             return {
-                "hash":          record_hash,
-                "polygon_tx_id": row[0],
+                "hash":           record_hash,
+                "polygon_tx_id":  row[0],
                 "already_stored": True,
             }
 
@@ -65,7 +67,7 @@ async def hash_and_store(
         entity_id=req.entity_id,
     )
 
-    # Save to PostgreSQL audit table
+    # Save to audit table
     async with get_session() as session:
         await session.execute(text("""
             INSERT INTO audit_hashes
@@ -92,54 +94,16 @@ async def hash_and_store(
     }
 
 
-# ── GET /verify/{hash} ────────────────────────────────────────────────────────
-
-@router.get("/verify/{record_hash}")
-async def verify_record(record_hash: str):
-    """
-    PUBLIC — no auth required.
-    Verifies a SHA-256 hash against Polygon.
-    Also returns original record from PostgreSQL audit table.
-    Used by /verify/[childId] page and QR passport scan.
-    """
-    # Fetch from our PostgreSQL first (for original_record + entity info)
-    async with get_session() as session:
-        row = await session.execute(text("""
-            SELECT entity_type, entity_id, polygon_tx_id, is_verified, created_at
-            FROM audit_hashes
-            WHERE record_hash = :hash
-        """), {"hash": record_hash})
-        audit = row.fetchone()
-
-    if not audit:
-        raise HTTPException(
-            status_code=404,
-            detail="Hash not found. This record may not have been verified on blockchain."
-        )
-
-    entity_type, entity_id, polygon_tx_id, is_verified, created_at = audit
-
-    # Re-verify against Polygon in real time
-    polygon_result = verify_hash(entity_id=entity_id, expected_hash=record_hash)
-
-    return {
-        "is_valid":      polygon_result.get("is_valid", False),
-        "hash":          record_hash,
-        "polygon_tx_id": polygon_tx_id,
-        "entity_type":   entity_type,
-        "entity_id":     entity_id,
-        "stored_at":     created_at.isoformat() if created_at else None,
-    }
-
-
-# ── GET /verify/child/{child_id} ──────────────────────────────────────────────
+# ── GET /verify/child/{child_id} — MUST come before /verify/{record_hash} ─────
+# FIX-1: This route is now registered FIRST so FastAPI doesn't swallow "child"
+#         as a record_hash value.
 
 @router.get("/verify/child/{child_id}")
 async def verify_child_records(child_id: str):
     """
-    PUBLIC — no auth.
-    Returns all verified vaccine records for a child.
-    Called by /verify/[childId] QR scan page.
+    PUBLIC — no auth required.
+    Returns all vaccine records for a child with live Polygon verification status.
+    Called by the /verify/[childId] QR scan page.
     """
     records = await get_vaccine_records(child_id)
 
@@ -162,4 +126,42 @@ async def verify_child_records(child_id: str):
         "child_id": child_id,
         "records":  verified_records,
         "total":    len(verified_records),
+    }
+
+
+# ── GET /verify/{record_hash} — registered AFTER /verify/child/{child_id} ─────
+
+@router.get("/verify/{record_hash}")
+async def verify_record(record_hash: str):
+    """
+    PUBLIC — no auth required.
+    Verifies a SHA-256 hash against Polygon in real time.
+    Used by QR passport scan and the /audit dashboard.
+    """
+    async with get_session() as session:
+        row = await session.execute(text("""
+            SELECT entity_type, entity_id, polygon_tx_id, is_verified, created_at
+            FROM audit_hashes
+            WHERE record_hash = :hash
+        """), {"hash": record_hash})
+        audit = row.fetchone()
+
+    if not audit:
+        raise HTTPException(
+            status_code=404,
+            detail="Hash not found. This record may not have been verified on blockchain."
+        )
+
+    entity_type, entity_id, polygon_tx_id, is_verified, created_at = audit
+
+    # Live re-verification against Polygon
+    polygon_result = verify_hash(entity_id=entity_id, expected_hash=record_hash)
+
+    return {
+        "is_valid":      polygon_result.get("is_valid", False),
+        "hash":          record_hash,
+        "polygon_tx_id": polygon_tx_id,
+        "entity_type":   entity_type,
+        "entity_id":     entity_id,
+        "stored_at":     created_at.isoformat() if created_at else None,
     }

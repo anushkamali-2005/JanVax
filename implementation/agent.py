@@ -1,17 +1,15 @@
 """
 backend/routers/agent.py
 -------------------------
-POST /agent/trigger — runs LangGraph multi-agent pipeline
+POST /agent/trigger    — runs LangGraph multi-agent debate pipeline
 GET  /agent/decisions/{child_id} — fetch past agent decisions for audit UI
 
-CRITICAL: agent_graph.invoke() is SYNCHRONOUS (LangGraph default).
-          Run it in a thread pool so it doesn't block the event loop.
-CRITICAL: Store full debate_log + actions in PostgreSQL after graph completes.
-CRITICAL: Hash the full decision record and store on Polygon.
+BUGS FIXED vs original:
+  FIX-1  asyncio.get_event_loop() deprecated and raises DeprecationWarning in
+         Python 3.10+. Inside an async function, use asyncio.get_running_loop().
 """
 
 import json
-import hashlib
 import asyncio
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +24,7 @@ from services.firebase_service import verify_firebase_token, get_child_doc
 from services.polygon_service import store_hash, compute_hash
 from database.postgres import get_session
 
-router = APIRouter()
+router    = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
@@ -49,31 +47,30 @@ async def trigger_agent(
 ):
     """
     Triggers full LangGraph debate + action pipeline.
-    Runs synchronous graph in thread pool to avoid blocking FastAPI.
-    Stores decision + debate log in PostgreSQL.
-    Hashes decision on Polygon.
-    Returns full result synchronously (waits for graph to complete).
+    Runs synchronous graph in thread pool (never blocks FastAPI event loop).
+    Persists decision + debate log to PostgreSQL.
+    Hashes decision record on Polygon (fire-and-forget background task).
     """
-    # Fetch child data
+    # ── 1. Fetch child data ────────────────────────────────────────────────
     child_data = await get_child_doc(req.child_id)
     if not child_data:
         raise HTTPException(status_code=404, detail="Child not found")
 
-    # Fetch SHAP values for this prediction from PostgreSQL
-    shap_values = {}
+    # ── 2. Fetch SHAP values from PostgreSQL ───────────────────────────────
+    shap_values: dict = {}
     async with get_session() as session:
         row = await session.execute(
             text("SELECT shap_values FROM ai_predictions WHERE id = :pid"),
             {"pid": req.prediction_id}
         )
         result = row.fetchone()
-        if result:
-            shap_values = result[0] or {}
+        if result and result[0]:
+            shap_values = result[0]
 
-    # Load family memory
+    # ── 3. Load family memory (PostgreSQL agent_memory table) ──────────────
     family_memory = load_family_memory(req.parent_uid)
 
-    # Build initial state
+    # ── 4. Build initial graph state ───────────────────────────────────────
     initial_state = {
         "child_id":           req.child_id,
         "prediction_id":      req.prediction_id,
@@ -92,14 +89,15 @@ async def trigger_agent(
         "debate_log":         [],
     }
 
-    # Run synchronous LangGraph in thread pool
-    loop = asyncio.get_event_loop()
+    # ── 5. Run synchronous LangGraph in thread pool ────────────────────────
+    # FIX-1: use get_running_loop(), not get_event_loop()
+    loop        = asyncio.get_running_loop()
     final_state = await loop.run_in_executor(
         _executor,
         lambda: agent_graph.invoke(initial_state)
     )
 
-    # Build decision record for hashing
+    # ── 6. Build canonical decision record for hashing ────────────────────
     decision_record = {
         "child_id":      req.child_id,
         "prediction_id": req.prediction_id,
@@ -108,10 +106,9 @@ async def trigger_agent(
         "debate_log":    final_state.get("debate_log", []),
         "timestamp":     datetime.now(timezone.utc).isoformat(),
     }
-
     record_hash = compute_hash(decision_record)
 
-    # Store in PostgreSQL
+    # ── 7. Persist to PostgreSQL ───────────────────────────────────────────
     agent_decision_id = None
     async with get_session() as session:
         result = await session.execute(text("""
@@ -120,7 +117,7 @@ async def trigger_agent(
                  decision, actions_taken, debate_log, record_hash)
             VALUES
                 (:child_id, :prediction_id, :analyst, :advocate,
-                 :decision, :actions, :debate_log, :hash)
+                 :decision, :actions::jsonb, :debate_log::jsonb, :hash)
             RETURNING id
         """), {
             "child_id":      req.child_id,
@@ -137,7 +134,7 @@ async def trigger_agent(
         if row:
             agent_decision_id = row[0]
 
-    # Hash on Polygon (fire and forget — don't block response)
+    # ── 8. Hash on Polygon — fire and forget ──────────────────────────────
     asyncio.create_task(store_hash(
         record_json=decision_record,
         entity_type="decision",
@@ -161,7 +158,7 @@ async def get_decisions(
     uid: str = Depends(verify_firebase_token),
     limit: int = 10,
 ):
-    """Returns past agent decisions for a child. Used by audit dashboard."""
+    """Returns past agent decisions for a child. Used by the audit dashboard."""
     async with get_session() as session:
         rows = await session.execute(text("""
             SELECT id, decision, actions_taken, debate_log,

@@ -4,19 +4,31 @@ pragma solidity ^0.8.19;
 /**
  * VaxGuardAudit.sol
  * -----------------
- * Stores SHA-256 hashes of VaxGuard records on Polygon Mumbai testnet.
- * Simple key-value store: entityId → recordHash.
- * Once stored, a hash cannot be overwritten (immutable audit trail).
+ * Stores SHA-256 hashes of VaxGuard AI decisions and vaccine records
+ * on Polygon Amoy testnet (Mumbai was deprecated Nov 2023).
  *
- * Deploy with: npx hardhat run scripts/deploy.js --network mumbai
+ * Key properties:
+ *   - Once stored, a hash CANNOT be overwritten (immutable audit trail)
+ *   - storeHash reverts if entityId already has a hash
+ *   - verifyHash lets anyone check a hash in one call (no Python comparison needed)
+ *   - getRecord returns full metadata: hash + who stored it + when
+ *
+ * Deploy:
+ *   npx hardhat run scripts/deploy.js --network amoy
+ *
+ * After deploy, set env var:
+ *   POLYGON_CONTRACT_ADDRESS=<deployed address>
+ *   POLYGON_RPC_URL=https://rpc-amoy.polygon.technology
+ *   POLYGON_CHAIN_ID=80002
  */
 
 contract VaxGuardAudit {
 
-    // entityId (Firebase childId or predictionId) → SHA-256 hash string
+    // ── Storage ──────────────────────────────────────────────────────────────
+
+    // entityId (Firestore childId, predictionId, agentDecisionId) → SHA-256 hash
     mapping(string => string) private hashes;
 
-    // Track who stored what and when (for the audit dashboard)
     struct HashRecord {
         string  recordHash;
         address storedBy;
@@ -24,25 +36,35 @@ contract VaxGuardAudit {
     }
     mapping(string => HashRecord) private records;
 
-    // Events — emitted on every store, queryable from frontend
+    // ── Events ───────────────────────────────────────────────────────────────
+
     event HashStored(
         string  indexed entityId,
         string  recordHash,
-        address storedBy,
+        address indexed storedBy,
         uint256 storedAt
     );
 
-    /**
-     * Store a hash for an entity.
-     * CRITICAL: Once stored, cannot be overwritten.
-     * If entityId already has a hash, this call reverts.
-     */
-    function storeHash(string calldata entityId, string calldata recordHash) external {
-        require(bytes(hashes[entityId]).length == 0, "VaxGuard: hash already stored for this entity");
-        require(bytes(entityId).length > 0,    "VaxGuard: entityId cannot be empty");
-        require(bytes(recordHash).length == 64, "VaxGuard: invalid SHA-256 hash length");
+    // ── Write ─────────────────────────────────────────────────────────────────
 
-        hashes[entityId] = recordHash;
+    /**
+     * @notice Store a SHA-256 hash for an entity.
+     * @dev    Reverts if entityId already has a stored hash (immutability).
+     * @param  entityId    Unique identifier (Firestore doc ID or prediction ID).
+     * @param  recordHash  64-character hex SHA-256 hash string.
+     */
+    function storeHash(
+        string calldata entityId,
+        string calldata recordHash
+    ) external {
+        require(bytes(entityId).length > 0,          "VaxGuard: empty entityId");
+        require(bytes(recordHash).length == 64,       "VaxGuard: hash must be 64 hex chars");
+        require(
+            bytes(hashes[entityId]).length == 0,
+            "VaxGuard: hash already stored, record is immutable"
+        );
+
+        hashes[entityId]  = recordHash;
         records[entityId] = HashRecord({
             recordHash: recordHash,
             storedBy:   msg.sender,
@@ -52,35 +74,45 @@ contract VaxGuardAudit {
         emit HashStored(entityId, recordHash, msg.sender, block.timestamp);
     }
 
+    // ── Read ──────────────────────────────────────────────────────────────────
+
     /**
-     * Retrieve stored hash for an entity.
-     * Returns empty string if not found.
+     * @notice Retrieve stored hash for an entity.
+     * @return Empty string if not found (entity not yet on chain).
      */
-    function getHash(string calldata entityId) external view returns (string memory) {
+    function getHash(string calldata entityId)
+        external view returns (string memory)
+    {
         return hashes[entityId];
     }
 
     /**
-     * Get full record metadata (hash + who stored it + when).
+     * @notice Retrieve full record: hash + who stored it + timestamp.
      */
     function getRecord(string calldata entityId)
-        external
-        view
-        returns (string memory recordHash, address storedBy, uint256 storedAt)
+        external view
+        returns (
+            string  memory recordHash,
+            address        storedBy,
+            uint256        storedAt
+        )
     {
         HashRecord memory r = records[entityId];
         return (r.recordHash, r.storedBy, r.storedAt);
     }
 
     /**
-     * Verify: returns true if stored hash matches provided hash.
-     * Use this from the /verify endpoint instead of fetching + comparing in Python.
+     * @notice Verify a hash directly on-chain — returns true/false.
+     * @dev    More gas-efficient than getHash + off-chain comparison
+     *         when called from a frontend or another contract.
      */
-    function verifyHash(string calldata entityId, string calldata providedHash)
-        external
-        view
-        returns (bool)
-    {
-        return keccak256(bytes(hashes[entityId])) == keccak256(bytes(providedHash));
+    function verifyHash(
+        string calldata entityId,
+        string calldata providedHash
+    ) external view returns (bool) {
+        return (
+            keccak256(bytes(hashes[entityId])) ==
+            keccak256(bytes(providedHash))
+        );
     }
 }
