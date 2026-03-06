@@ -1,0 +1,21 @@
+# virtual environments
+backend/venv/
+venv/
+env/
+.env*
+__pycache__/
+
+# Secrets
+firebase-admin-key.json
+
+# Node
+node_modules/
+.next/
+
+# Misc
+.DS_Store
+*.docx
+*.txt
+
+# Exclude any temporary or artifact directories
+.gemini/
