@@ -85,8 +85,15 @@ app.include_router(stats.router,      prefix="",           tags=["MLOps"])
 app.include_router(reminders.router,  prefix="/reminders", tags=["Reminders"])
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
+from fastapi.responses import RedirectResponse
+
+# ── Health check & Root ───────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "janvax-api", "version": "1.0.0"}
+
+@app.get("/", include_in_schema=False)
+def root():
+    """Redirects the base URL to the interactive API documentation."""
+    return RedirectResponse(url="/docs")

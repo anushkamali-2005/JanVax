@@ -1,116 +1,102 @@
 "use client";
+// frontend/app/community/page.tsx
+// ------------------------------
+// Herd immunity monitor map.
 
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Globe, Info, AlertTriangle, Shield, CheckCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { getCommunityStats, type DistrictCoverage } from "@/lib/api";
+import Nav from "@/components/Nav";
 import HerdImmunityMap from "@/components/HerdImmunityMap";
-import { motion } from "framer-motion";
+import { Shield, Info, ArrowUpRight } from "lucide-react";
 
 export default function CommunityPage() {
-    const router = useRouter();
+    const [districts, setDistricts] = useState<DistrictCoverage[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [language, setLanguage] = useState("en");
+
+    useEffect(() => {
+        getCommunityStats().then(data => {
+            setDistricts(data.districts);
+            setLoading(false);
+        });
+    }, []);
 
     return (
-        <div className="min-h-screen bg-[#0f172a] text-white">
-            <nav className="border-b border-white/10 px-8 py-4 flex items-center justify-between sticky top-0 z-50 bg-[#0f172a]/80 backdrop-blur-md">
-                <button
-                    onClick={() => router.back()}
-                    className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group"
-                >
-                    <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                    Back
-                </button>
-                <div className="flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-blue-500" />
-                    <span className="font-bold uppercase tracking-widest text-[10px]">Community Herd Immunity</span>
-                </div>
-            </nav>
+        <div className="page-shell">
+            <Nav language={language} onLanguageChange={setLanguage} />
 
-            <main className="max-w-7xl mx-auto px-6 py-12">
-                <div className="grid lg:grid-cols-4 gap-10">
+            <main className="page-content" style={{ paddingTop: "2.5rem", paddingBottom: "4rem" }}>
 
-                    {/* Legend and Info */}
-                    <div className="lg:col-span-1 space-y-8">
-                        <header>
-                            <h1 className="text-4xl font-bold mb-4">India Coverage Map</h1>
-                            <p className="text-slate-400">
-                                Real-time vaccination monitoring by district. We use anonymous user data to predict community risk zones.
-                            </p>
-                        </header>
+                <header style={{ marginBottom: "2.5rem" }} className="fade-up">
+                    <p className="label" style={{ marginBottom: "0.75rem" }}>Public Health Surveillance</p>
+                    <h1 className="headline" style={{ marginBottom: "0.5rem" }}>India Coverage Map</h1>
+                    <p style={{ color: "var(--ink-3)", fontSize: "0.9375rem", maxWidth: "600px" }}>
+                        Real-time monitoring of community vaccination levels. We use anonymous records to identify districts below herd immunity thresholds.
+                    </p>
+                </header>
 
-                        <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-6 space-y-4">
-                            <h3 className="font-bold text-sm uppercase tracking-widest text-slate-500 mb-2">Legend</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "2rem" }} className="flex-col md:flex-row">
 
-                            <div className="flex items-center gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                                <div className="w-4 h-4 rounded-md bg-rose-500"></div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-bold text-rose-400">High Risk Zone</div>
-                                    <div className="text-[10px] text-rose-500/70 uppercase font-bold tracking-tighter">Under 70% Coverage</div>
+                    {/* Map Section */}
+                    <div className="fade-up fade-up-1">
+                        <div className="card" style={{ padding: "0", height: "600px", overflow: "hidden" }}>
+                            {loading ? (
+                                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    <div className="spinner" />
                                 </div>
-                            </div>
-
-                            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                                <div className="w-4 h-4 rounded-md bg-amber-500"></div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-bold text-amber-400">Warning Zone</div>
-                                    <div className="text-[10px] text-amber-500/70 uppercase font-bold tracking-tighter">70% - 90% Coverage</div>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                                <div className="w-4 h-4 rounded-md bg-emerald-500"></div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-bold text-emerald-400">Safe Zone</div>
-                                    <div className="text-[10px] text-emerald-500/70 uppercase font-bold tracking-tighter">Above 90% Coverage</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-6 rounded-[2rem] bg-indigo-600/10 border border-indigo-600/20 flex gap-4">
-                            <Info className="w-6 h-6 text-indigo-400 shrink-0" />
-                            <p className="text-xs text-slate-400 leading-relaxed">
-                                <strong>How it works:</strong> Every time a parent updates their child's record, it's anonymously added to their district's pool. Like Waze, our users are our live data sensors.
-                            </p>
-                        </div>
-
-                        <div className="p-6 rounded-[2rem] bg-white/5 border border-white/10 space-y-4">
-                            <h4 className="font-bold text-sm">Active Outbreaks</h4>
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-xl transition-colors">
-                                    <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
-                                    <span className="text-sm font-medium">Measles in Mumbai</span>
-                                </div>
-                                <div className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-xl transition-colors">
-                                    <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-                                    <span className="text-sm font-medium">Polio Warning - Pune</span>
-                                </div>
-                            </div>
+                            ) : (
+                                <HerdImmunityMap districts={districts} />
+                            )}
                         </div>
                     </div>
 
-                    {/* Map Area */}
-                    <div className="lg:col-span-3">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.98 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="bg-slate-900 border border-white/10 rounded-[3rem] p-8 min-h-[600px] flex flex-col"
-                        >
-                            <div className="flex items-center justify-between mb-8">
-                                <div>
-                                    <h2 className="text-2xl font-bold flex items-center gap-3">
-                                        <Shield className="w-6 h-6 text-blue-500" />
-                                        Community Dashboard
-                                    </h2>
-                                    <p className="text-sm text-slate-500">Zoom and hover over districts for detailed metrics</p>
-                                </div>
-                                <div className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-400">
-                                    Live Updates Active
-                                </div>
+                    {/* Sidebar Info */}
+                    <aside className="fade-up fade-up-2 space-y-6">
+                        <div className="card-flat" style={{ background: "var(--green-light)", borderColor: "var(--green-muted)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                                <Shield size={18} className="text-green" />
+                                <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>Herd Immunity Alert</span>
                             </div>
+                            <p style={{ fontSize: "0.8125rem", color: "var(--ink-2)", lineHeight: 1.6 }}>
+                                Districts in <span style={{ color: "var(--risk-high)", fontWeight: 600 }}>red</span> have MMR coverage below 70%. High risk of measles transmission.
+                            </p>
+                        </div>
 
-                            <div className="flex-1 relative bg-black/20 rounded-[2rem] border border-white/5 overflow-hidden">
-                                <HerdImmunityMap />
+                        <div className="card">
+                            <h3 className="label" style={{ marginBottom: "1.25rem", color: "var(--ink)" }}>Active Outbreaks</h3>
+                            <div className="space-y-4">
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                        <p style={{ fontSize: "0.875rem", fontWeight: 500 }}>Mumbai District</p>
+                                        <p style={{ fontSize: "0.75rem", color: "var(--risk-high)" }}>Measles (Active)</p>
+                                    </div>
+                                    <div style={{ width: "8px", height: "8px", background: "var(--risk-high)", borderRadius: "50%" }} />
+                                </div>
+                                <hr className="divider" />
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                        <p style={{ fontSize: "0.875rem", fontWeight: 500 }}>Pune District</p>
+                                        <p style={{ fontSize: "0.75rem", color: "var(--risk-medium)" }}>Polio Warning</p>
+                                    </div>
+                                    <div style={{ width: "8px", height: "8px", background: "var(--risk-medium)", borderRadius: "50%" }} />
+                                </div>
                             </div>
-                        </motion.div>
-                    </div>
+                        </div>
+
+                        <div className="card-flat" style={{ borderStyle: "dashed" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                                <Info size={16} className="text-ink-4" />
+                                <span className="label" style={{ fontSize: "10px" }}>Data Transparency</span>
+                            </div>
+                            <p style={{ fontSize: "0.75rem", color: "var(--ink-4)", lineHeight: 1.7 }}>
+                                Data is aggregated from JanVax users. For official government statistics, please visit Cowin.gov.in
+                            </p>
+                            <button className="btn-ghost" style={{ padding: "8px 0", marginTop: "8px" }}>
+                                Official Stats <ArrowUpRight size={14} />
+                            </button>
+                        </div>
+                    </aside>
+
                 </div>
             </main>
         </div>

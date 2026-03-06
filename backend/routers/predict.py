@@ -22,7 +22,7 @@ from ml.features import engineer_features, HIGH_RISK_STATES
 from ml.shap_explainer import get_risk_and_shap, get_top_features
 from ml.dice_explainer import get_counterfactuals
 from services.firebase_service import get_child_doc, get_user_language
-from services.gemini_service import generate_nl_explanation
+from services.llm_service import generate_nl_explanation
 from services.polygon_service import store_hash
 from services.firebase_service import verify_firebase_token
 from database.postgres import get_session

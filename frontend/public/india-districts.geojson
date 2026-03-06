@@ -1,0 +1,39 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "district": "Mumbai",
+                "state": "Maharashtra"
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [
+                            72,
+                            18
+                        ],
+                        [
+                            73,
+                            18
+                        ],
+                        [
+                            73,
+                            19
+                        ],
+                        [
+                            72,
+                            19
+                        ],
+                        [
+                            72,
+                            18
+                        ]
+                    ]
+                ]
+            }
+        }
+    ]
+}

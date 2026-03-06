@@ -1,205 +1,211 @@
 "use client";
+// frontend/app/page.tsx — Login / Landing
 
-import { signInWithGoogle, logOut, getCurrentUser, onAuthStateChanged } from "@/lib/firebase";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Smartphone, Bell, Activity, Globe, CheckCircle } from "lucide-react";
+import { signInWithGoogle, auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 
-export default function LandingPage() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export default function LoginPage() {
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged((user) => {
-      setUser(user);
-      setLoading(false);
-      if (user) {
-        // router.push("/dashboard");
-      }
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) router.replace("/dashboard");
+      else setChecking(false);
     });
-    return () => unsubscribe();
+    return unsub;
   }, [router]);
 
-  const handleLogin = async () => {
+  if (checking) {
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  async function handleGoogle() {
+    setLoading(true);
+    setError("");
     try {
       await signInWithGoogle();
-      router.push("/dashboard");
-    } catch (err) {
-      console.error("Login failed", err);
+      router.replace("/dashboard");
+    } catch (e: any) {
+      setError("Sign-in failed. Please try again.");
+      setLoading(false);
     }
-  };
-
-  if (loading) return (
-    <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-    </div>
-  );
+  }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white selection:bg-blue-500/30">
-      {/* Navigation */}
-      <nav className="border-b border-white/10 px-6 py-4 flex items-center justify-between backdrop-blur-md sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-600/20">
-            <Shield className="w-6 h-6 text-white" />
-          </div>
-          <span className="text-2xl font-bold tracking-tight bg-gradient-to-r from-white to-blue-400 bg-clip-text text-transparent">
-            JanVax
+    <div style={{
+      minHeight: "100dvh",
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      background: "#ffffff",
+    }}>
+      {/* Left — hero copy */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "clamp(2rem, 5vw, 4rem)",
+        background: "var(--surface)",
+        borderRight: "1px solid var(--border)",
+      }}
+        className="hidden md:flex"
+      >
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{
+            width: "28px", height: "28px", background: "var(--ink)", borderRadius: "7px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1L9.5 4.5H11.5L12.5 7L11.5 9.5H9.5L7 13L4.5 9.5H2.5L1.5 7L2.5 4.5H4.5L7 1Z" fill="white" />
+            </svg>
           </span>
-        </div>
-        <div className="flex items-center gap-4">
-          {user ? (
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 transition-all rounded-full font-semibold shadow-lg shadow-blue-600/20"
-            >
-              Go to Dashboard
-            </button>
-          ) : (
-            <button
-              onClick={handleLogin}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 transition-all rounded-full font-semibold shadow-lg shadow-blue-600/20"
-            >
-              Sign In
-            </button>
-          )}
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <main className="max-w-7xl mx-auto px-6 pt-20 pb-32">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
-          <div className="space-y-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-medium">
-              <Activity className="w-4 h-4" />
-              <span>India's AI Vaccination Platform</span>
-            </div>
-
-            <h1 className="text-6xl lg:text-7xl font-bold leading-tight tracking-tight">
-              Self-Improving, <br />
-              <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                Explainable & Verifiable
-              </span> <br />
-              AI Vaccination
-            </h1>
-
-            <p className="text-xl text-slate-400 max-w-xl leading-relaxed">
-              The digital vault for immunization records built for every Indian—from premium smartphones to basic feature phones.
-            </p>
-
-            <div className="flex items-center gap-4 pt-4">
-              <button
-                onClick={handleLogin}
-                className="px-8 py-4 bg-blue-600 hover:bg-blue-500 transition-all rounded-2xl font-bold text-lg shadow-xl shadow-blue-600/30 flex items-center gap-3"
-              >
-                Get Started Now
-                <Shield className="w-5 h-5" />
-              </button>
-              <button className="px-8 py-4 bg-white/5 hover:bg-white/10 transition-all rounded-2xl font-bold text-lg border border-white/10">
-                View Demo
-              </button>
-            </div>
-
-            <div className="flex items-center gap-8 pt-8">
-              <div className="flex -space-x-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="w-12 h-12 rounded-full border-4 border-[#0f172a] bg-slate-800 overflow-hidden shadow-xl" />
-                ))}
-              </div>
-              <div>
-                <div className="text-2xl font-bold">1.2M+</div>
-                <div className="text-slate-500 text-sm uppercase tracking-wider font-semibold">Records Secured</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Floating UI Elements Mockup */}
-          <div className="relative">
-            <div className="relative z-10 bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden aspect-square flex flex-col justify-center items-center group transition-all duration-700 hover:scale-[1.02]">
-              <div className="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-all duration-700" />
-              <div className="w-32 h-32 bg-blue-600 rounded-full flex items-center justify-center animate-pulse shadow-2xl shadow-blue-600/50">
-                <Shield className="w-16 h-16 text-white" />
-              </div>
-              <div className="mt-8 text-center">
-                <div className="text-2xl font-bold mb-2">Blockchain Verified</div>
-                <div className="text-slate-400">Tamper-proof health records on Polygon</div>
-              </div>
-            </div>
-            {/* Decorative Elements */}
-            <div className="absolute -top-12 -right-12 w-64 h-64 bg-blue-600/20 blur-[100px] -z-10" />
-            <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-indigo-600/20 blur-[100px] -z-10" />
-          </div>
+          <span style={{ fontWeight: 600, fontSize: "1.125rem", letterSpacing: "-0.02em" }}>JanVax</span>
         </div>
 
-        {/* Features Grid */}
-        <div className="mt-40 grid md:grid-cols-3 gap-8">
-          {[
-            {
-              title: "Digital Vault",
-              desc: "Lost your paper card? Access your history anytime, anywhere on any device.",
-              icon: Shield,
-              color: "blue"
-            },
-            {
-              title: "Smart Reminders",
-              desc: "SMS, Push, and USSD notifications ensure you never miss a critical dose.",
-              icon: Bell,
-              color: "indigo"
-            },
-            {
-              title: "AI Risk Prediction",
-              desc: "State-of-the-art XGBoost engine predicts risks before they become outbreaks.",
-              icon: Activity,
-              color: "rose"
-            },
-            {
-              title: "OCR Scanner",
-              desc: "Convert old paper cards into digital records instantly using AI-powered OCR.",
-              icon: Smartphone,
-              color: "emerald"
-            },
-            {
-              title: "Blockchain Proof",
-              desc: "Every AI decision and vaccination record is cryptographically signed and stored.",
-              icon: CheckCircle,
-              color: "amber"
-            },
-            {
-              title: "Multi-Agent AI",
-              desc: "Independent agents debate vaccination cases to ensure highest accuracy.",
-              icon: Globe,
-              color: "cyan"
-            }
-          ].map((f, i) => (
-            <div key={i} className="p-8 rounded-3xl bg-white/5 border border-white/10 hover:border-white/20 transition-all group">
-              <div className={`w-12 h-12 rounded-2xl bg-${f.color}-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                <f.icon className={`w-6 h-6 text-${f.color}-400`} />
-              </div>
-              <h3 className="text-xl font-bold mb-3">{f.title}</h3>
-              <p className="text-slate-400 leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 py-12 px-6 bg-black/20">
-        <div className="max-w-7xl mx-auto flex flex-col md:row items-center justify-between gap-8">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-blue-500" />
-            <span className="font-bold tracking-tight">JanVax AI</span>
-          </div>
-          <p className="text-slate-500 text-sm">
-            © 2024 JanVax India. Built for public health infrastructure.
+        {/* Main copy */}
+        <div style={{ maxWidth: "400px" }}>
+          <p className="label" style={{ marginBottom: "1.25rem" }}>India's vaccination platform</p>
+          <h1 className="display" style={{ marginBottom: "1.5rem" }}>
+            Every child,<br />
+            <span style={{ color: "var(--green)" }}>protected.</span>
+          </h1>
+          <p style={{ fontSize: "1.0625rem", color: "var(--ink-2)", lineHeight: 1.7, fontWeight: 300 }}>
+            AI-powered risk prediction, multilingual reminders, and a tamper-proof
+            vaccination record for every family in India.
           </p>
-          <div className="flex gap-6">
-            <a href="#" className="text-slate-400 hover:text-white transition-colors">Privacy</a>
-            <a href="#" className="text-slate-400 hover:text-white transition-colors">Terms</a>
-            <a href="#" className="text-slate-400 hover:text-white transition-colors">Support</a>
+
+          {/* Stats row */}
+          <div style={{ display: "flex", gap: "2.5rem", marginTop: "2.5rem" }}>
+            {[
+              { value: "99.9%", label: "Model accuracy" },
+              { value: "6 lang", label: "Supported" },
+              { value: "Poly", label: "Blockchain" },
+            ].map(({ value, label }) => (
+              <div key={label}>
+                <div style={{ fontWeight: 600, fontSize: "1.125rem", letterSpacing: "-0.02em" }}>{value}</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--ink-4)", marginTop: "2px" }}>{label}</div>
+              </div>
+            ))}
           </div>
         </div>
-      </footer>
+
+        {/* Footer credit */}
+        <p style={{ fontSize: "0.75rem", color: "var(--ink-4)" }}>
+          Built for Advanced AI Healthcare
+        </p>
+      </div>
+
+      {/* Right — sign in */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "clamp(2rem, 5vw, 4rem)",
+      }}>
+        <div style={{ width: "100%", maxWidth: "340px" }} className="fade-up">
+
+          {/* Mobile logo */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2.5rem" }}
+            className="md:hidden"
+          >
+            <span style={{
+              width: "24px", height: "24px", background: "var(--ink)", borderRadius: "6px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1L9.5 4.5H11.5L12.5 7L11.5 9.5H9.5L7 13L4.5 9.5H2.5L1.5 7L2.5 4.5H4.5L7 1Z" fill="white" />
+              </svg>
+            </span>
+            <span style={{ fontWeight: 600, fontSize: "0.9375rem", letterSpacing: "-0.02em" }}>JanVax</span>
+          </div>
+
+          <h2 style={{ fontWeight: 500, fontSize: "1.375rem", letterSpacing: "-0.025em", marginBottom: "0.5rem" }}>
+            Welcome to JanVax
+          </h2>
+          <p style={{ fontSize: "0.875rem", color: "var(--ink-3)", marginBottom: "2rem", lineHeight: 1.6 }}>
+            Sign in to manage your family's vaccination records with AI guidance.
+          </p>
+
+          {error && (
+            <div style={{
+              background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "8px",
+              padding: "10px 14px", fontSize: "0.8125rem", color: "#DC2626", marginBottom: "1rem",
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* Google sign-in */}
+          <button
+            onClick={handleGoogle}
+            disabled={loading}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              padding: "0.75rem 1.25rem",
+              background: "#ffffff",
+              border: "1px solid var(--border)",
+              borderRadius: "10px",
+              fontSize: "0.9375rem",
+              fontWeight: 500,
+              color: "var(--ink)",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.6 : 1,
+              transition: "all 0.12s",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            {loading ? (
+              <div className="spinner" />
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4" />
+                <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853" />
+                <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05" />
+                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335" />
+              </svg>
+            )}
+            {loading ? "Signing in…" : "Continue with Google"}
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "1.25rem 0" }}>
+            <hr className="divider" style={{ flex: 1 }} />
+            <span style={{ fontSize: "0.75rem", color: "var(--ink-4)" }}>or</span>
+            <hr className="divider" style={{ flex: 1 }} />
+          </div>
+
+          {/* Phone sign-in placeholder */}
+          <button
+            className="btn-secondary"
+            style={{ width: "100%", justifyContent: "center", padding: "0.75rem" }}
+            onClick={() => alert("Phone OTP integration coming soon for rural areas.")}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 2h3l1.5 3.5-1.75 1.25a9 9 0 0 0 3.5 3.5L10.5 8.5 14 10v3a1 1 0 0 1-1 1A12 12 0 0 1 2 3a1 1 0 0 1 1-1Z"
+                stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+            Continue with phone
+          </button>
+
+          <p style={{ fontSize: "0.75rem", color: "var(--ink-4)", textAlign: "center", marginTop: "1.5rem", lineHeight: 1.7 }}>
+            Rural families can use USSD for offline updates.
+            <br />Contact your local health worker for help.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -3,74 +3,71 @@ ml/train.py
 -----------
 XGBoost training pipeline with MLflow tracking.
 Called by GitHub Actions weekly retraining cron.
-Also callable manually: python ml/train.py
 
 CRITICAL: Validation gate — model only deploys if val_accuracy >= 0.90.
-CRITICAL: Model saved to backend/models/xgb_model.pkl on pass.
-CRITICAL: MLflow run always logged regardless of pass/fail.
 """
 
 import os
 import sys
 import json
 import joblib
+import logging
 import pandas as pd
 import numpy as np
 import mlflow
 import mlflow.xgboost
 import xgboost as xgb
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix
-from sklearn.preprocessing import label_binarize
 
-# Add project root to path when run directly
+# Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from ml.features import FEATURE_COLUMNS, TARGET_COLUMN
 
-ACCURACY_GATE   = 0.90
-MODEL_OUTPUT    = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+)
+logger = logging.getLogger("vaxguard.ml.train")
+
+ACCURACY_GATE     = 0.90
+MODEL_OUTPUT      = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 MLFLOW_MODEL_NAME = "VaxGuardRiskModel"
 
 
-def load_data(data_path: str = None) -> pd.DataFrame:
-    """
-    Loads and combines all training data sources.
-    Looks for CSVs in ml/data/ directory.
-    """
+def load_data() -> pd.DataFrame:
+    """Loads and combines all training data sources from ml/data/."""
     data_dir = os.path.join(os.path.dirname(__file__), "data")
-
     dfs = []
-    for fname in ["who_immunization.csv", "icmr_child_health.csv", "synthetic_records.csv"]:
+    
+    data_files = ["who_immunization.csv", "icmr_child_health.csv", "synthetic_records.csv"]
+    for fname in data_files:
         fpath = os.path.join(data_dir, fname)
         if os.path.exists(fpath):
             df = pd.read_csv(fpath)
             dfs.append(df)
-            print(f"  Loaded {fname}: {len(df)} rows")
+            logger.info("Loaded %s: %d rows", fname, len(df))
 
     if not dfs:
-        raise FileNotFoundError(
-            f"No training data found in {data_dir}. "
-            "Run: python scripts/seed_firebase.py first, or add CSVs to ml/data/"
-        )
+        logger.error("No training data found in %s", data_dir)
+        raise FileNotFoundError(f"No training data found in {data_dir}.")
 
     combined = pd.concat(dfs, ignore_index=True)
-    print(f"  Combined: {len(combined)} total rows")
+    logger.info("Combined: %d total rows", len(combined))
     return combined
 
 
-def train_model(data_path: str = None) -> float:
-    """
-    Full training pipeline.
-    Returns val_accuracy.
-    Deploys model if accuracy >= ACCURACY_GATE.
-    """
+def train_model() -> float:
+    """Full training pipeline with MLflow logging and model registry."""
     mlflow.set_experiment("VaxGuard-Risk-Model")
 
-    print("Loading data...")
-    df = load_data(data_path)
+    logger.info("Starting training pipeline...")
+    df = load_data()
 
-    # Validate all required columns exist
+    # Validate columns
     missing = [c for c in FEATURE_COLUMNS + [TARGET_COLUMN] if c not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in training data: {missing}")
@@ -78,19 +75,18 @@ def train_model(data_path: str = None) -> float:
     X = df[FEATURE_COLUMNS]
     y = df[TARGET_COLUMN].astype(int)
 
-    print(f"Class distribution: {y.value_counts().to_dict()}")
+    logger.info("Class distribution: %s", y.value_counts().to_dict())
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
         test_size=0.2,
         random_state=42,
-        stratify=y,   # preserve class balance in both splits
+        stratify=y,
     )
 
     with mlflow.start_run() as run:
-        print(f"MLflow run: {run.info.run_id}")
+        logger.info("MLflow run started: %s", run.info.run_id)
 
-        # ── Hyperparameters ────────────────────────────────────────────────
         params = {
             "n_estimators":      200,
             "max_depth":         6,
@@ -128,34 +124,32 @@ def train_model(data_path: str = None) -> float:
         mlflow.log_metric("train_records",   len(X_train))
         mlflow.log_metric("test_records",    len(X_test))
 
-        # Feature importance
+        # Log artifacts
         importance = dict(zip(FEATURE_COLUMNS, model.feature_importances_.tolist()))
         mlflow.log_dict(importance, "feature_importance.json")
         mlflow.log_dict({"confusion_matrix": cm}, "confusion_matrix.json")
 
-        print(f"  val_accuracy: {val_accuracy:.4f}")
-        print(f"  val_f1:       {val_f1:.4f}")
-        print(f"  val_auc:      {val_auc:.4f}")
+        logger.info("Validation Accuracy: %.4f", val_accuracy)
+        logger.info("Validation F1:       %.4f", val_f1)
+        logger.info("Validation AUC:      %.4f", val_auc)
 
-        # Log model to MLflow
         mlflow.xgboost.log_model(model, "xgb_model")
 
-        # ── Validation gate ────────────────────────────────────────────────
+        # ── Deployment Gate ────────────────────────────────────────────────
         if val_accuracy >= ACCURACY_GATE:
-            # Deploy: save to backend/models/
             os.makedirs(os.path.dirname(MODEL_OUTPUT), exist_ok=True)
             joblib.dump(model, MODEL_OUTPUT)
-
-            # Register in MLflow model registry
+            
+            # Register in registry
             model_uri = f"runs:/{run.info.run_id}/xgb_model"
             mlflow.register_model(model_uri, MLFLOW_MODEL_NAME)
 
             mlflow.log_param("deployed", True)
-            print(f"✅ Model DEPLOYED to {MODEL_OUTPUT}")
+            logger.info("✅ Model DEPLOYED to %s", MODEL_OUTPUT)
         else:
             mlflow.log_param("deployed", False)
-            print(f"❌ Model REJECTED: {val_accuracy:.4f} < {ACCURACY_GATE} threshold")
-            print("   Previous model remains in production.")
+            logger.warning("❌ Model REJECTED: accuracy %.4f < %.2f threshold", 
+                           val_accuracy, ACCURACY_GATE)
 
     return val_accuracy
 

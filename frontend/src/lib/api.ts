@@ -1,55 +1,46 @@
-/**
- * frontend/src/lib/api.ts
- * ------------------------
- * Typed API client for the VaxGuard FastAPI backend.
- * All calls include Firebase Bearer token from the auth state.
- *
- * CRITICAL: getIdToken() must be called fresh each time — tokens expire after 1 hour.
- * CRITICAL: BASE_URL reads from NEXT_PUBLIC_API_URL env var, falls back to localhost.
- */
+// frontend/src/lib/api.ts
+// --------------------
+// All FastAPI backend endpoint callers.
+// Every function fetches the ID token and passes it as Bearer.
+// CRITICAL: Never call fetch() directly in components — always use these functions.
+// CRITICAL: All functions throw on non-2xx — catch in components.
 
-import { auth } from "@/lib/firebase";
+import { getIdToken } from "./firebase";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// ── Helper: get fresh Firebase JWT ───────────────────────────────────────────
+// ── Base fetcher ──────────────────────────────────────────────────────────────
 
-async function getAuthHeader(): Promise<Record<string, string>> {
-    const user = auth.currentUser;
-    if (!user) return {};
-    const token = await user.getIdToken();
-    return { Authorization: `Bearer ${token}` };
-}
+async function apiFetch<T>(
+    path: string,
+    options: RequestInit = {},
+    requireAuth = true
+): Promise<T> {
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(options.headers as Record<string, string>),
+    };
 
-async function apiPost<T>(path: string, body: object): Promise<T> {
-    const authHeader = await getAuthHeader();
-    const res = await fetch(`${BASE_URL}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify(body),
-    });
+    if (requireAuth) {
+        try {
+            const token = await getIdToken();
+            headers["Authorization"] = `Bearer ${token}`;
+        } catch (e) {
+            console.warn("API Call without Auth: ", path);
+        }
+    }
+
+    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || `API error ${res.status}`);
     }
+
     return res.json();
 }
 
-async function apiGet<T>(path: string, authRequired = true): Promise<T> {
-    const authHeader = authRequired ? await getAuthHeader() : {};
-    const res = await fetch(`${BASE_URL}${path}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json", ...authHeader },
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `API error ${res.status}`);
-    }
-    return res.json();
-}
-
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── ML / Predictions ──────────────────────────────────────────────────────────
 
 export interface PredictRequest {
     child_id: string;
@@ -68,28 +59,69 @@ export interface PredictResponse {
     risk_scores: Record<string, number>;
     top_disease: string;
     top_score: number;
-    risk_level: "LOW" | "MEDIUM" | "HIGH";
+    risk_level: "HIGH" | "MEDIUM" | "LOW";
     record_hash: string;
+}
+
+export async function predictRisk(req: PredictRequest): Promise<PredictResponse> {
+    return apiFetch<PredictResponse>("/predict", {
+        method: "POST",
+        body: JSON.stringify(req),
+    });
 }
 
 export interface ExplainResponse {
     shap_values: Record<string, number>;
-    counterfactuals: Array<{
-        change_description: string;
-        new_score: number;
-        feature_changes: Record<string, number>;
-    }>;
+    counterfactuals: Array<{ change_description: string; new_score: number }>;
     nl_explanation: string;
     nl_explanation_en: string;
 }
 
+export async function explainRisk(
+    predictionId: number,
+    childId: string,
+    language = "en"
+): Promise<ExplainResponse> {
+    return apiFetch<ExplainResponse>("/explain", {
+        method: "POST",
+        body: JSON.stringify({ prediction_id: predictionId, child_id: childId, language }),
+    });
+}
+
+// ── Agent ─────────────────────────────────────────────────────────────────────
+
 export interface AgentTriggerResponse {
-    decision: string;
-    actions_taken: Record<string, unknown>;
-    debate_log: Array<{ node: string; output: string }>;
+    decision: "ALERT_FAMILY" | "ESCALATE_TO_DOCTOR" | "MONITOR";
+    actions_taken: Record<string, any>;
+    debate_log: Array<{ role: string; content: string; ts: string }>;
     agent_decision_id: number;
     record_hash: string;
 }
+
+export async function triggerAgent(
+    childId: string,
+    predictionId: number,
+    riskScore: number,
+    topDisease: string,
+    parentUid: string
+): Promise<AgentTriggerResponse> {
+    return apiFetch<AgentTriggerResponse>("/agent/trigger", {
+        method: "POST",
+        body: JSON.stringify({
+            child_id: childId,
+            prediction_id: predictionId,
+            risk_score: riskScore,
+            top_disease: topDisease,
+            parent_uid: parentUid,
+        }),
+    });
+}
+
+export async function getAgentDecisions(childId: string): Promise<{ decisions: any[] }> {
+    return apiFetch(`/agent/decisions/${childId}`);
+}
+
+// ── Blockchain Verify ─────────────────────────────────────────────────────────
 
 export interface VerifyResponse {
     is_valid: boolean;
@@ -101,39 +133,36 @@ export interface VerifyResponse {
 }
 
 export interface ChildVerifyResponse {
-    child_id: string;
     total: number;
     records: Array<{
-        id: string;
         vaccineName: string;
         dateGiven: string;
         centerName: string;
-        polygonHash: string;
         isVerified: boolean;
     }>;
 }
 
-export interface CommunityStats {
-    districts: Array<{
-        district: string;
-        totalChildren: number;
-        mmrCoverage: number;
-        polioOPV: number;
-        bcgCoverage: number;
-        dptCoverage: number;
-        herdRisk: boolean;
-        state: string;
-    }>;
+export async function verifyHash(hash: string): Promise<VerifyResponse> {
+    // Public endpoint — no auth
+    return apiFetch<VerifyResponse>(`/verify/${hash}`, {}, false);
 }
 
-export interface ModelStats {
-    model_version: string;
-    training_accuracy: number;
-    validation_accuracy: number;
-    training_records: number;
-    last_trained: string;
-    drift_detected: boolean;
+export async function verifyChildRecords(childId: string): Promise<{ records: any[] }> {
+    return apiFetch(`/verify/child/${childId}`, {}, false);
 }
+
+export async function storeHash(
+    recordJson: object,
+    entityType: string,
+    entityId: string
+): Promise<{ hash: string; polygon_tx_id: string }> {
+    return apiFetch("/verify/hash", {
+        method: "POST",
+        body: JSON.stringify({ record_json: recordJson, entity_type: entityType, entity_id: entityId }),
+    });
+}
+
+// ── OCR ───────────────────────────────────────────────────────────────────────
 
 export interface OCRResponse {
     extracted_records: Array<{
@@ -147,43 +176,48 @@ export interface OCRResponse {
     unmatched_lines: string[];
 }
 
+export async function cleanOCRText(rawText: string): Promise<OCRResponse> {
+    return apiFetch<OCRResponse>("/ocr-clean", {
+        method: "POST",
+        body: JSON.stringify({ raw_text: rawText }),
+    });
+}
 
-// ── API Functions ─────────────────────────────────────────────────────────────
+// ── Community ─────────────────────────────────────────────────────────────────
 
-export const predictRisk = (req: PredictRequest) =>
-    apiPost<PredictResponse>("/predict", req);
+export interface DistrictCoverage {
+    district: string;
+    state: string;
+    totalChildren: number;
+    mmrCoverage: number;
+    polioOPV: number;
+    bcgCoverage: number;
+    herdRisk: boolean;
+}
 
-export const explainRisk = (prediction_id: number, child_id: string, language = "en") =>
-    apiPost<ExplainResponse>("/explain", { prediction_id, child_id, language });
+export async function getCommunityStats(): Promise<{ districts: DistrictCoverage[] }> {
+    return apiFetch("/community/coverage", {}, false);
+}
 
-export const triggerAgent = (req: {
-    child_id: string;
-    prediction_id: number;
-    risk_score: number;
-    top_disease: string;
-    parent_uid: string;
-}) => apiPost<AgentTriggerResponse>("/agent/trigger", req);
+// ── Stats / MLOps ─────────────────────────────────────────────────────────────
 
-export const getAgentDecisions = (child_id: string) =>
-    apiGet<{ decisions: AgentTriggerResponse[] }>(`/agent/decisions/${child_id}`);
+export interface ModelStats {
+    model_version: string;
+    training_accuracy: number;
+    validation_accuracy: number;
+    training_records: number;
+    last_trained: string;
+    drift_detected: boolean;
+}
 
-export const verifyHash = (hash: string) =>
-    apiGet<VerifyResponse>(`/verify/${hash}`, false); // public endpoint
+export async function getModelStats(): Promise<ModelStats> {
+    return apiFetch<ModelStats>("/stats");
+}
 
-export const verifyChildRecords = (child_id: string) =>
-    apiGet<ChildVerifyResponse>(`/verify/child/${child_id}`, false); // public endpoint
+export async function triggerReminders(): Promise<any> {
+    return apiFetch("/reminders/trigger", { method: "POST" });
+}
 
-export const getCommunityStats = () =>
-    apiGet<CommunityStats>("/community/coverage", false);
-
-export const getModelStats = () =>
-    apiGet<ModelStats>("/stats");
-
-export const cleanOCR = (raw_text: string) =>
-    apiPost<OCRResponse>("/ocr-clean", { raw_text });
-
-export const triggerReminders = () =>
-    apiPost<{ status: string }>("/reminders/trigger-daily", {});
-
-export const getReminderStatus = () =>
-    apiGet<{ scheduler_running: boolean; jobs: Array<{ id: string; next_run: string }> }>("/reminders/status");
+export async function getReminderStatus(): Promise<any> {
+    return apiFetch("/reminders/status");
+}

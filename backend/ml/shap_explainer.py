@@ -1,94 +1,90 @@
 """
 ml/shap_explainer.py
 --------------------
-SHAP TreeExplainer wrapper for XGBoost risk model.
-Returns SHAP values as clean {feature: float} dict for the API.
-
-CRITICAL: explainer is created once at module load — expensive to recreate.
-CRITICAL: shap_values[0] is the array for the positive class (HIGH_RISK).
-CRITICAL: Import this in backend/routers/predict.py — do not recreate explainer per request.
+SHAP TreeExplainer wrapper for JanVax Risk Model.
 """
 
 import os
 import joblib
+import logging
 import numpy as np
 import pandas as pd
 import shap
+from typing import Dict, List, Tuple, Any, Optional
 
 from ml.features import FEATURE_COLUMNS, features_to_series
 
+logger = logging.getLogger("vaxguard.ml.shap")
+
 # ── Load model + build explainer once ────────────────────────────────────────
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 
-_model    = None
-_explainer = None
+_model: Optional[Any] = None
+_explainer: Optional[shap.TreeExplainer] = None
 
 def _load():
     global _model, _explainer
-    if _model is None:
-        if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(
-                f"Model not found at {MODEL_PATH}. "
-                "Run: python ml/train.py first."
-            )
-        _model    = joblib.load(MODEL_PATH)
+    if _model is not None:
+        return
+        
+    if not os.path.exists(MODEL_PATH):
+        logger.error("Model file missing at %s", MODEL_PATH)
+        return
+
+    try:
+        _model     = joblib.load(MODEL_PATH)
         _explainer = shap.TreeExplainer(_model)
+        logger.info("SHAP explainer initialized with model from %s", MODEL_PATH)
+    except Exception as exc:
+        logger.error("Failed to load model/explainer: %s", exc)
 
 _load()
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
 def get_risk_score(feature_dict: dict) -> int:
-    """
-    Returns integer risk score 0-100.
-    = probability of HIGH_RISK class × 100, rounded.
-    """
-    df   = features_to_series(feature_dict)
-    prob = _model.predict_proba(df)[0][1]   # index 1 = HIGH_RISK class
-    return int(round(prob * 100))
+    """Returns integer risk score 0-100."""
+    if _model is None:
+        return 0
+    try:
+        df   = features_to_series(feature_dict)
+        prob = _model.predict_proba(df)[0][1]
+        return int(round(prob * 100))
+    except Exception as exc:
+        logger.error("get_risk_score error: %s", exc)
+        return 0
 
 
 def get_shap_values(feature_dict: dict) -> dict:
-    """
-    Returns SHAP values as {feature_name: float} dict.
-    Positive value = pushes risk score UP.
-    Negative value = pushes risk score DOWN.
-    """
-    df          = features_to_series(feature_dict)
-    shap_values = _explainer.shap_values(df)
+    """Returns SHAP values as {feature_name: float} dict."""
+    if _explainer is None:
+        return {}
+    try:
+        df          = features_to_series(feature_dict)
+        shap_values = _explainer.shap_values(df)
 
-    # For binary XGBoost: shap_values is shape (1, n_features)
-    # or (2, 1, n_features) — handle both
-    if isinstance(shap_values, list):
-        vals = shap_values[1][0]   # positive class
-    else:
-        vals = shap_values[0]
+        # Handle binary XGBoost output shapes
+        if isinstance(shap_values, list):
+            vals = shap_values[1][0]
+        else:
+            vals = shap_values[0]
 
-    return {
-        FEATURE_COLUMNS[i]: round(float(vals[i]), 4)
-        for i in range(len(FEATURE_COLUMNS))
-    }
-
-
-def get_risk_and_shap(feature_dict: dict) -> tuple[int, dict]:
-    """
-    Returns (risk_score, shap_values) in one call.
-    Avoids running model twice when both are needed.
-    """
-    df          = features_to_series(feature_dict)
-    prob        = _model.predict_proba(df)[0][1]
-    risk_score  = int(round(prob * 100))
-    shap_vals   = get_shap_values(feature_dict)
-    return risk_score, shap_vals
+        return {
+            FEATURE_COLUMNS[i]: round(float(vals[i]), 4)
+            for i in range(len(FEATURE_COLUMNS))
+        }
+    except Exception as exc:
+        logger.error("get_shap_values error: %s", exc)
+        return {}
 
 
-def get_top_features(shap_dict: dict, n: int = 3) -> list[dict]:
-    """
-    Returns top N features sorted by absolute SHAP value.
-    Used by the Gemini NL explanation prompt.
-    e.g. [{"feature": "days_overdue", "value": 0.42, "direction": "increases_risk"}]
-    """
+def get_risk_and_shap(feature_dict: dict) -> Tuple[int, dict]:
+    """Returns (risk_score, shap_values) in one call."""
+    return get_risk_score(feature_dict), get_shap_values(feature_dict)
+
+
+def get_top_features(shap_dict: dict, n: int = 3) -> List[Dict[str, Any]]:
+    """Returns top N features sorted by absolute SHAP value."""
     sorted_features = sorted(
         shap_dict.items(),
         key=lambda x: abs(x[1]),

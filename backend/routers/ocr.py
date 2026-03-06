@@ -9,33 +9,43 @@ Pipeline:
 
 CRITICAL: Input is messy OCR text from paper cards — handle all date formats.
 CRITICAL: rapidfuzz fuzzy matching handles DTwP vs DPT vs DTP variations.
-CRITICAL: Never guess a vaccine if confidence < 0.65 — return as unmatched.
 CRITICAL: Load spaCy model once at module level, not per request.
 """
 
 import re
 import spacy
+import logging
+import subprocess
 from datetime import datetime
+from typing import Optional, List, Dict, Any, Tuple
 from rapidfuzz import fuzz, process
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+logger = logging.getLogger("vaxguard.ocr")
+
 router = APIRouter()
 
 # ── Load spaCy once ───────────────────────────────────────────────────────────
-# python -m spacy download en_core_web_sm  (run once during setup)
-try:
-    _nlp = spacy.load("en_core_web_sm")
-except OSError:
-    # Fallback: download on first run
-    import subprocess
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
-    _nlp = spacy.load("en_core_web_sm")
+_nlp: Any = None
+
+def _load_spacy():
+    global _nlp
+    if _nlp is not None:
+        return _nlp
+    try:
+        _nlp = spacy.load("en_core_web_sm")
+        logger.info("spaCy model loaded successfully.")
+    except OSError:
+        logger.warning("spaCy model missing. Downloading en_core_web_sm...")
+        subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+        _nlp = spacy.load("en_core_web_sm")
+    return _nlp
+
+_load_spacy()
 
 
 # ── Vaccine name dictionary for fuzzy matching ────────────────────────────────
-# Keys: all known abbreviations/variants
-# Values: (standardized_name, vaccine_code)
 VACCINE_ALIASES = {
     "bcg":          ("BCG",             "BCG"),
     "opv":          ("OPV Birth Dose",  "OPV-0"),
@@ -63,7 +73,6 @@ VACCINE_ALIASES = {
     "japanese encephalitis": ("JE Dose 1", "JE-1"),
 }
 
-# Date patterns commonly found on Indian vaccination cards
 DATE_PATTERNS = [
     r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b",   # 12/03/2023, 12-03-23
     r"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-,]*(\d{2,4})\b",
@@ -76,20 +85,15 @@ MONTH_MAP = {
 }
 
 
-# ── Schema ────────────────────────────────────────────────────────────────────
-
 class OCRRequest(BaseModel):
     raw_text: str
 
 
-# ── POST /ocr-clean ───────────────────────────────────────────────────────────
-
 @router.post("/ocr-clean")
-async def clean_ocr(req: OCRRequest):
-    """
-    Parses raw Tesseract OCR text into structured vaccine records.
-    Returns extracted_records (high confidence) + unmatched_lines (needs review).
-    """
+async def clean_ocr(req: OCRRequest) -> Dict[str, Any]:
+    """Parses raw Tesseract OCR text into structured vaccine records."""
+    logger.info("Cleaning OCR text (%d chars)...", len(req.raw_text))
+    
     lines = [l.strip() for l in req.raw_text.split("\n") if l.strip()]
 
     extracted_records = []
@@ -100,23 +104,18 @@ async def clean_ocr(req: OCRRequest):
         if result:
             extracted_records.append(result)
         else:
-            # Don't discard — might be center name or batch number
             if len(line) > 3:
                 unmatched_lines.append(line)
 
+    logger.info("OCR cleaning complete: %d records found.", len(extracted_records))
     return {
         "extracted_records": extracted_records,
         "unmatched_lines":   unmatched_lines,
     }
 
 
-# ── Line parser ───────────────────────────────────────────────────────────────
-
-def _parse_line(line: str) -> dict | None:
-    """
-    Attempts to extract (vaccine_name, date_given, center_name) from one line.
-    Returns None if no vaccine name found with sufficient confidence.
-    """
+def _parse_line(line: str) -> Optional[Dict[str, Any]]:
+    """Attempts to extract (vaccine_name, date_given, center_name) from one line."""
     line_lower = line.lower()
 
     # Step 1: Fuzzy match vaccine name
@@ -127,7 +126,7 @@ def _parse_line(line: str) -> dict | None:
     # Step 2: Extract date
     date_str = _extract_date(line)
 
-    # Step 3: Extract center name via spaCy ORG entities
+    # Step 3: Extract center name via spaCy
     center_name = _extract_center(line)
 
     return {
@@ -135,16 +134,13 @@ def _parse_line(line: str) -> dict | None:
         "vaccineCode":  vaccine_code,
         "dateGiven":    date_str,
         "centerName":   center_name or "",
-        "confidence":   round(confidence / 100, 2),
+        "confidence":   round(float(confidence) / 100, 2),
         "rawLine":      line,
     }
 
 
-def _match_vaccine(line_lower: str) -> tuple[str, str, float]:
-    """
-    Returns (standardized_name, code, confidence_0_to_100).
-    Uses rapidfuzz partial_ratio for fuzzy matching.
-    """
+def _match_vaccine(line_lower: str) -> Tuple[str, str, float]:
+    """Returns (standardized_name, code, confidence_0_to_100)."""
     best_score = 0
     best_name  = ""
     best_code  = ""
@@ -158,19 +154,16 @@ def _match_vaccine(line_lower: str) -> tuple[str, str, float]:
 
     # Also try token_sort_ratio for multi-word aliases
     alias_keys = list(VACCINE_ALIASES.keys())
-    result     = process.extractOne(line_lower, alias_keys, scorer=fuzz.token_sort_ratio)
+    result = process.extractOne(line_lower, alias_keys, scorer=fuzz.token_sort_ratio)
     if result and result[1] > best_score:
-        best_score = result[1]
+        best_score = float(result[1])
         best_name, best_code = VACCINE_ALIASES[result[0]]
 
-    return best_name, best_code, best_score
+    return best_name, best_code, float(best_score)
 
 
 def _extract_date(line: str) -> str:
-    """
-    Extracts and normalizes date from line.
-    Returns ISO format string "YYYY-MM-DD" or empty string.
-    """
+    """Extracts and normalizes date from line."""
     for pattern in DATE_PATTERNS:
         match = re.search(pattern, line, re.IGNORECASE)
         if not match:
@@ -201,11 +194,9 @@ def _extract_date(line: str) -> str:
 
 
 def _extract_center(line: str) -> str:
-    """
-    Uses spaCy NER to extract ORG entities (clinic/hospital names).
-    Falls back to keyword matching for PHC/CHC/hospital patterns.
-    """
-    doc = _nlp(line)
+    """Uses spaCy NER to extract ORG entities (clinic/hospital names)."""
+    nlp = _load_spacy()
+    doc = nlp(line)
     for ent in doc.ents:
         if ent.label_ in ("ORG", "FAC", "GPE"):
             return ent.text

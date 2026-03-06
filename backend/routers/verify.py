@@ -9,7 +9,10 @@ CRITICAL: Also store in PostgreSQL audit_hashes for the audit dashboard.
 """
 
 import json
+import logging
+import asyncio
 from datetime import datetime, timezone
+from typing import Dict, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,6 +21,8 @@ from sqlalchemy import text
 from services.polygon_service import store_hash, verify_hash, compute_hash
 from services.firebase_service import verify_firebase_token, get_vaccine_records
 from database.postgres import get_session
+
+logger = logging.getLogger("vaxguard.verify")
 
 router = APIRouter()
 
@@ -84,6 +89,7 @@ async def hash_and_store(
         })
         await session.commit()
 
+    logger.info("Record hash stored: %s (Entity: %s)", record_hash[:8], req.entity_id)
     return {
         "hash":           record_hash,
         "polygon_tx_id":  tx_id or None,
@@ -112,6 +118,7 @@ async def verify_record(record_hash: str):
         audit = row.fetchone()
 
     if not audit:
+        logger.warning("Verification request for unknown hash: %s", record_hash)
         raise HTTPException(
             status_code=404,
             detail="Hash not found. This record may not have been verified on blockchain."
@@ -119,8 +126,8 @@ async def verify_record(record_hash: str):
 
     entity_type, entity_id, polygon_tx_id, is_verified, created_at = audit
 
-    # Re-verify against Polygon in real time
-    polygon_result = verify_hash(entity_id=entity_id, expected_hash=record_hash)
+    # Re-verify against Polygon in real time (blocking Web3 call, so wrap in thread)
+    polygon_result = await asyncio.to_thread(verify_hash, entity_id=entity_id, expected_hash=record_hash)
 
     return {
         "is_valid":      polygon_result.get("is_valid", False),
@@ -144,12 +151,15 @@ async def verify_child_records(child_id: str):
     records = await get_vaccine_records(child_id)
 
     verified_records = []
+    # Verify records in parallel or sequence? 
+    # For a few records, sequential is fine but let's wrap etc.
     for record in records:
         polygon_hash = record.get("polygonHash", "")
         is_verified  = False
 
         if polygon_hash:
-            result      = verify_hash(entity_id=record.get("id", ""), expected_hash=polygon_hash)
+            # Wrap blocking call
+            result      = await asyncio.to_thread(verify_hash, entity_id=record.get("id", ""), expected_hash=polygon_hash)
             is_verified = result.get("is_valid", False)
 
         verified_records.append({

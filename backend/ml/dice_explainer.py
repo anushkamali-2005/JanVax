@@ -1,33 +1,31 @@
 """
 ml/dice_explainer.py
 --------------------
-DiCE counterfactual generator.
-Answers: "What would need to change to lower the risk score?"
-
-CRITICAL: DiCE needs the training dataframe at init time — load once.
-CRITICAL: desired_class=0 means "flip to NOT high_risk" — this is correct.
-CRITICAL: Only perturb actionable features — not age_months (can't change a child's age).
-CRITICAL: Returns human-readable strings, not raw feature dicts.
+DiCE counterfactual generator for JanVax Risk Model.
 """
 
 import os
 import joblib
+import logging
 import pandas as pd
 import dice_ml
+from typing import List, Dict, Any, Optional
 
 from ml.features import FEATURE_COLUMNS, TARGET_COLUMN
+
+logger = logging.getLogger("vaxguard.ml.dice")
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "../models/xgb_model.pkl")
 DATA_PATH  = os.path.join(os.path.dirname(__file__), "data/synthetic_records.csv")
 
-# Features a parent can actually act on — do not include age_months or gender_male
+# ── Actionable vs Immutable Features ──────────────────────────────────────────
+
 ACTIONABLE_FEATURES = [
     "vaccines_missed_count",
     "days_overdue",
     "reminder_ignored_count",
 ]
 
-# Features that are fixed / not actionable
 IMMUTABLE_FEATURES = [
     "age_months",
     "gender_male",
@@ -36,7 +34,7 @@ IMMUTABLE_FEATURES = [
     "sibling_history",
 ]
 
-_dice_exp = None
+_dice_exp: Optional[dice_ml.Dice] = None
 
 
 def _load():
@@ -44,47 +42,44 @@ def _load():
     if _dice_exp is not None:
         return
 
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Training data not found: {DATA_PATH}. Run synthetic_seed.py first.")
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(DATA_PATH):
+        logger.error("Required ML files missing (model or training data)")
+        return
 
-    model    = joblib.load(MODEL_PATH)
-    train_df = pd.read_csv(DATA_PATH)[FEATURE_COLUMNS + [TARGET_COLUMN]]
+    try:
+        model    = joblib.load(MODEL_PATH)
+        train_df = pd.read_csv(DATA_PATH)[FEATURE_COLUMNS + [TARGET_COLUMN]]
 
-    d = dice_ml.Data(
-        dataframe=train_df,
-        continuous_features=[
-            "age_months", "vaccines_missed_count",
-            "days_overdue", "reminder_ignored_count",
-        ],
-        outcome_name=TARGET_COLUMN,
-    )
-    m = dice_ml.Model(model=model, backend="sklearn")
-    _dice_exp = dice_ml.Dice(d, m, method="random")
+        d = dice_ml.Data(
+            dataframe=train_df,
+            continuous_features=[
+                "age_months", "vaccines_missed_count",
+                "days_overdue", "reminder_ignored_count",
+            ],
+            outcome_name=TARGET_COLUMN,
+        )
+        m = dice_ml.Model(model=model, backend="sklearn")
+        _dice_exp = dice_ml.Dice(d, m, method="random")
+        logger.info("DiCE explainer initialized.")
+    except Exception as exc:
+        logger.error("Failed to initialize DiCE: %s", exc)
 
 
-def get_counterfactuals(feature_dict: dict, n: int = 2) -> list[dict]:
+def get_counterfactuals(feature_dict: dict, n: int = 2) -> List[Dict[str, Any]]:
     """
     Returns list of human-readable counterfactual explanations.
-
-    Each item: {
-        "change_description": "Get vaccinated in next 7 days",
-        "new_score": 12,
-        "feature_changes": {"days_overdue": 0, "vaccines_missed_count": 0}
-    }
-
-    Returns empty list on failure — never raises, never crashes the API.
     """
-    try:
-        _load()
+    _load()
+    if _dice_exp is None:
+        return []
 
+    try:
         input_df = pd.DataFrame([feature_dict])[FEATURE_COLUMNS]
 
         cfs = _dice_exp.generate_counterfactuals(
             input_df,
             total_CFs=n,
-            desired_class=0,                    # flip to NOT high_risk
+            desired_class=0,
             features_to_vary=ACTIONABLE_FEATURES,
         )
 
@@ -94,6 +89,7 @@ def get_counterfactuals(feature_dict: dict, n: int = 2) -> list[dict]:
         if cf_df is None or len(cf_df) == 0:
             return []
 
+        # Load model again to score CFs (cheap if cached by OS)
         model = joblib.load(MODEL_PATH)
 
         for _, row in cf_df.iterrows():
@@ -106,12 +102,10 @@ def get_counterfactuals(feature_dict: dict, n: int = 2) -> list[dict]:
                 if abs(cf_dict.get(k, 0) - feature_dict.get(k, 0)) > 0.01
             }
 
-            # New risk score for this counterfactual
             cf_input  = pd.DataFrame([cf_dict])[FEATURE_COLUMNS]
             new_prob  = model.predict_proba(cf_input)[0][1]
             new_score = int(round(new_prob * 100))
 
-            # Build human-readable description
             description = _describe_changes(changes)
             if description:
                 results.append({
@@ -122,8 +116,8 @@ def get_counterfactuals(feature_dict: dict, n: int = 2) -> list[dict]:
 
         return results
 
-    except Exception as e:
-        print(f"[dice_explainer] Error: {e}")
+    except Exception as exc:
+        logger.error("DiCE generation failed: %s", exc)
         return []
 
 

@@ -1,0 +1,10 @@
+{
+  "age_months": 0.015185253694653511,
+  "vaccines_missed_count": 0.5382514595985413,
+  "days_overdue": 0.06900297105312347,
+  "district_outbreak_flag": 0.081694595515728,
+  "sibling_history": 0.16189169883728027,
+  "gender_male": 0.009948983788490295,
+  "state_high_risk": 0.009621437638998032,
+  "reminder_ignored_count": 0.11440355330705643
+}

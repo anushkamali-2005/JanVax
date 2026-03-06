@@ -1,189 +1,177 @@
-/**
- * frontend/src/lib/firebase.ts
- * ----------------------------
- * Firebase client-side SDK initialization and Firestore helpers.
- *
- * CRITICAL: Uses NEXT_PUBLIC_* env vars — these are baked into the JS bundle.
- * CRITICAL: init() is called once at module load — safe to import anywhere.
- * CRITICAL: onAuthStateChanged returns an unsubscribe function — call it in useEffect cleanup.
- */
+// frontend/src/lib/firebase.ts
+// -------------------------
+// Firebase initialization. Import this everywhere auth or Firestore is needed.
+// CRITICAL: Only initialize once — this file exports the singleton instances.
+// CRITICAL: All env vars must be NEXT_PUBLIC_ prefixed to be available client-side.
 
-import { initializeApp, getApps } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import {
     getAuth,
     GoogleAuthProvider,
+    RecaptchaVerifier,
     signInWithPopup,
+    signInWithPhoneNumber,
+    onAuthStateChanged,
     signOut,
-    onAuthStateChanged as _onAuthStateChanged,
     type User,
 } from "firebase/auth";
 import {
     getFirestore,
     collection,
-    query,
-    where,
-    onSnapshot,
-    addDoc,
-    serverTimestamp,
     doc,
     getDoc,
+    setDoc,
     updateDoc,
+    onSnapshot,
+    query,
+    where,
+    orderBy,
+    serverTimestamp,
+    increment,
     type Unsubscribe,
 } from "firebase/firestore";
 
-// ── Firebase config ───────────────────────────────────────────────────────────
-// Values come from NEXT_PUBLIC_* environment variables (set in .env.local)
-
 const firebaseConfig = {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
-// Initialize once — Next.js hot reload can re-run module, guard against that
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-const googleProvider = new GoogleAuthProvider();
-
+// Singleton — safe in Next.js hot reload
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
-/** Signs in with Google popup. Returns Firebase User. */
+const googleProvider = new GoogleAuthProvider();
+
 export async function signInWithGoogle(): Promise<User> {
     const result = await signInWithPopup(auth, googleProvider);
+    await _ensureUserDoc(result.user);
     return result.user;
 }
 
-/** Signs out the current user. */
-export async function logOut(): Promise<void> {
-    return signOut(auth);
+export async function signInWithPhone(
+    phone: string,
+    recaptchaContainerId: string
+): Promise<{ verificationId: string; recaptchaVerifier: RecaptchaVerifier }> {
+    const recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
+        size: "invisible",
+    });
+    const confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
+    return { verificationId: confirmationResult.verificationId, recaptchaVerifier };
 }
 
-/** Returns the currently signed-in user synchronously, or null. */
+export async function logOut(): Promise<void> {
+    await signOut(auth);
+}
+
 export function getCurrentUser(): User | null {
     return auth.currentUser;
 }
 
-/**
- * Subscribes to Firebase auth state changes.
- * Returns an unsubscribe function — call in useEffect cleanup.
- *
- * @example
- * useEffect(() => {
- *   const unsub = onAuthStateChanged((user) => { ... });
- *   return () => unsub();
- * }, []);
- */
-export function onAuthStateChanged(callback: (user: User | null) => void): Unsubscribe {
-    return _onAuthStateChanged(auth, callback);
+export async function getIdToken(): Promise<string> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated");
+    return user.getIdToken();
 }
 
+// ── Create user doc on first login ────────────────────────────────────────────
 
-// ── Firestore: Children ───────────────────────────────────────────────────────
-
-export interface ChildData {
-    id: string;
-    name: string;
-    ageMonths: number;
-    gender: string;
-    district: string;
-    state: string;
-    parentUid: string;
-    riskScore: number;
-    riskDisease?: string;
-    vaccinesMissedCount: number;
-    daysOverdue: number;
-    nextDueVaccine?: string;
-    nextDueDate?: string;
-    lastVaccine?: string;
-    districtOutbreakFlag: number;
-    siblingHistory: number;
-    reminderIgnoreCount: number;
-    createdAt?: unknown;
+async function _ensureUserDoc(user: User): Promise<void> {
+    const ref = doc(db, "users", user.uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+        await setDoc(ref, {
+            uid: user.uid,
+            name: user.displayName || "",
+            email: user.email || "",
+            phone: user.phoneNumber || "",
+            language: "en",
+            role: "parent",
+            district: "",
+            state: "",
+            createdAt: serverTimestamp(),
+        });
+    }
 }
 
-/**
- * Real-time subscription to a parent's children.
- * Calls `callback` whenever Firestore data changes.
- * Returns an unsubscribe function.
- */
+// ── Firestore helpers ─────────────────────────────────────────────────────────
+
 export function subscribeToChildren(
     parentUid: string,
-    callback: (children: ChildData[]) => void,
+    callback: (children: any[]) => void
 ): Unsubscribe {
+    // Real-time listener — fires immediately + on every change
     const q = query(
         collection(db, "children"),
         where("parentUid", "==", parentUid),
+        orderBy("createdAt", "desc")
     );
-
     return onSnapshot(q, (snapshot) => {
-        const children: ChildData[] = snapshot.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<ChildData, "id">),
-        }));
+        const children = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         callback(children);
     });
 }
 
-/**
- * Adds a new child document to Firestore.
- * Returns the new document ID.
- */
-export async function addChild(
-    parentUid: string,
-    data: Omit<ChildData, "id" | "parentUid" | "createdAt">,
-): Promise<string> {
-    const ref = await addDoc(collection(db, "children"), {
-        ...data,
+export async function getVaccineRecords(childId: string): Promise<any[]> {
+    const q = query(
+        collection(db, "children", childId, "vaccineRecords"),
+        orderBy("dateGiven", "asc")
+    );
+    const snap = await import("firebase/firestore").then(({ getDocs }) => getDocs(q));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function saveVaccineRecord(childId: string, record: object): Promise<string> {
+    const ref = doc(collection(db, "children", childId, "vaccineRecords"));
+    await setDoc(ref, { ...record, createdAt: serverTimestamp() });
+    return ref.id;
+}
+
+export async function addChild(parentUid: string, childData: object): Promise<string> {
+    const ref = doc(collection(db, "children"));
+    await setDoc(ref, {
+        ...childData,
+        childId: ref.id,
         parentUid,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         riskScore: 0,
-        vaccinesMissedCount: 0,
-        daysOverdue: 0,
-        reminderIgnoreCount: 0,
-        districtOutbreakFlag: 0,
-        siblingHistory: 0,
     });
     return ref.id;
 }
 
-/**
- * Fetches a single child document by ID.
- * Returns null if not found.
- */
-export async function getChildById(childId: string): Promise<ChildData | null> {
-    const snap = await getDoc(doc(db, "children", childId));
-    if (!snap.exists()) return null;
-    return { id: snap.id, ...(snap.data() as Omit<ChildData, "id">) };
-}
-
-
-// ── Firestore: Users ──────────────────────────────────────────────────────────
-
-/**
- * Saves or updates user profile in Firestore.
- * Called after Google Sign-In to persist name, email, and language preference.
- */
-export async function saveUserProfile(
-    uid: string,
-    data: { displayName: string; email: string; language?: string; phone?: string },
-): Promise<void> {
-    await updateDoc(doc(db, "users", uid), {
-        ...data,
-        updatedAt: serverTimestamp(),
-    }).catch(async () => {
-        // Document doesn't exist yet — create it
-        const { setDoc } = await import("firebase/firestore");
-        await setDoc(doc(db, "users", uid), {
-            ...data,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
+export function subscribeToChildRecords(
+    childId: string,
+    callback: (records: any[]) => void
+): Unsubscribe {
+    const q = query(
+        collection(db, "children", childId, "vaccineRecords"),
+        orderBy("dateGiven", "desc")
+    );
+    return onSnapshot(q, (snapshot) => {
+        const records = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        callback(records);
     });
 }
+
+export async function getChildDoc(childId: string): Promise<any> {
+    const ref = doc(db, "children", childId);
+    const snap = await getDoc(ref);
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function updateUserLanguage(uid: string, language: string): Promise<void> {
+    await updateDoc(doc(db, "users", uid), { language });
+}
+
+export async function savePushToken(uid: string, subscriptionJson: string): Promise<void> {
+    await updateDoc(doc(db, "users", uid), { pushToken: subscriptionJson });
+}
+
+export { auth, db, onAuthStateChanged, serverTimestamp };

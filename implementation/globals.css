@@ -1,0 +1,281 @@
+/* frontend/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design Tokens ─────────────────────────────────────────────────── */
+:root {
+  --font-sans: "DM Sans", sans-serif;
+  --font-mono: "DM Mono", monospace;
+
+  /* Brand */
+  --green:        #16A34A;
+  --green-light:  #F0FDF4;
+  --green-muted:  #DCFCE7;
+
+  /* Neutrals */
+  --ink:          #0A0A0A;
+  --ink-2:        #3F3F46;
+  --ink-3:        #71717A;
+  --ink-4:        #A1A1AA;
+  --border:       #E4E4E7;
+  --border-light: #F4F4F5;
+  --surface:      #FAFAFA;
+
+  /* Risk */
+  --risk-high:    #DC2626;
+  --risk-medium:  #D97706;
+  --risk-low:     #16A34A;
+
+  /* Spacing scale */
+  --page-pad: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+/* ── Base ──────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: #ffffff;
+  line-height: 1.6;
+}
+
+/* ── Typography ────────────────────────────────────────────────────── */
+.display {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.headline {
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+}
+
+/* ── Layout primitives ──────────────────────────────────────────────── */
+.page-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-content {
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 var(--page-pad);
+}
+
+/* ── Card ───────────────────────────────────────────────────────────── */
+.card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: box-shadow 0.15s ease;
+}
+
+.card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.card-flat {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--ink);
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  text-decoration: none;
+}
+
+.btn-primary:hover  { opacity: 0.85; transform: translateY(-1px); }
+.btn-primary:active { opacity: 1;    transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  text-decoration: none;
+}
+
+.btn-secondary:hover { background: var(--surface); border-color: var(--ink-4); }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  padding: 0.375rem 0.625rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+  text-decoration: none;
+}
+
+.btn-ghost:hover { color: var(--ink); background: var(--surface); }
+
+/* ── Risk badges ───────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.625rem;
+  border-radius: 100px;
+}
+
+.badge-high   { background: #FEF2F2; color: var(--risk-high); }
+.badge-medium { background: #FFFBEB; color: var(--risk-medium); }
+.badge-low    { background: var(--green-muted); color: var(--green); }
+.badge-gray   { background: var(--surface); color: var(--ink-3); border: 1px solid var(--border); }
+
+/* ── Input ──────────────────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.625rem 0.875rem;
+  outline: none;
+  transition: border-color 0.12s;
+  -webkit-appearance: none;
+}
+
+.input:focus    { border-color: var(--ink); }
+.input::placeholder { color: var(--ink-4); }
+
+/* ── Divider ────────────────────────────────────────────────────────── */
+.divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+  border: none;
+  margin: 0;
+}
+
+/* ── Progress / loading ─────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--border-light) 25%, var(--surface) 50%, var(--border-light) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Fade-in page transition ────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.3s ease both;
+}
+
+.fade-up-1 { animation-delay: 0.05s; }
+.fade-up-2 { animation-delay: 0.10s; }
+.fade-up-3 { animation-delay: 0.15s; }
+.fade-up-4 { animation-delay: 0.20s; }
+.fade-up-5 { animation-delay: 0.25s; }
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+
+/* ── Utility overrides ─────────────────────────────────────────────── */
+.text-ink    { color: var(--ink); }
+.text-ink-2  { color: var(--ink-2); }
+.text-ink-3  { color: var(--ink-3); }
+.text-ink-4  { color: var(--ink-4); }
+.text-green  { color: var(--green); }
+.bg-surface  { background: var(--surface); }
+.border-std  { border: 1px solid var(--border); }

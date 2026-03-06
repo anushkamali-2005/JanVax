@@ -1,16 +1,16 @@
 """
-agents/graph.py
+backend/agents/graph.py
 ---------------
-LangGraph StateGraph for VaxGuard multi-agent debate pipeline.
-CRITICAL FILE — do not let Antigravity rewrite this without reference.
+LangGraph StateGraph for JanVax multi-agent debate pipeline.
 
 Flow:
   risk_analyst → devils_advocate → decision
                                       ↓ (conditional)
-                             HIGH_RISK → action → memory → END
-                             else     →           memory → END
+             (ALERT/ESCALATE) → action → memory → END
+             (MONITOR/OTHER)  →           memory → END
 """
 
+import logging
 from typing import TypedDict, Optional, List, Any
 from langgraph.graph import StateGraph, END
 from agents.nodes import (
@@ -21,6 +21,7 @@ from agents.nodes import (
     memory_node,
 )
 
+logger = logging.getLogger("vaxguard.agent.graph")
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
@@ -33,14 +34,14 @@ class AgentState(TypedDict):
     parent_uid:         str
     shap_values:        dict          # {feature_name: float}
     child_data:         dict          # full Firestore children/{childId} doc
+    family_memory:      Optional[str] # summary string from PostgreSQL
 
     # ── Filled by nodes (intermediate) ────────────────────────────────────────
     analyst_output:     Optional[str]
     advocate_output:    Optional[str]
-    decision:           Optional[str]   # "HIGH_RISK" | "LOW_RISK" | "MONITOR"
-    nearest_center:     Optional[dict]
-    family_memory:      Optional[str]   # summary string from PostgreSQL
-    escalate_to_doctor: Optional[bool]
+    decision:           Optional[str]   # "ALERT_FAMILY" | "ESCALATE_TO_DOCTOR" | "MONITOR"
+    nearest_center:     Optional[str]
+    escalate_to_doctor: Optional[bool]  # flag derived from decision for internal logic
 
     # ── Filled by action/memory nodes (outputs) ───────────────────────────────
     actions_taken:      Optional[dict]
@@ -50,9 +51,13 @@ class AgentState(TypedDict):
 # ── Routing function ──────────────────────────────────────────────────────────
 
 def route_after_decision(state: AgentState) -> str:
-    """Only go to action node if decision is HIGH_RISK."""
-    if state.get("decision") == "HIGH_RISK":
+    """Only go to action node if decision requires intervention."""
+    decision = state.get("decision", "").upper()
+    if decision in ("ALERT_FAMILY", "ESCALATE_TO_DOCTOR"):
+        logger.info("Routing to ACTION node based on decision: %s", decision)
         return "action"
+    
+    logger.info("Skipping ACTION node (Decision: %s)", decision)
     return "memory"
 
 
@@ -73,7 +78,7 @@ def build_agent_graph() -> Any:
     graph.add_edge("risk_analyst",    "devils_advocate")
     graph.add_edge("devils_advocate", "decision")
 
-    # Conditional: HIGH_RISK → action, else skip to memory
+    # Conditional: ALERT/ESCALATE → action, else skip to memory
     graph.add_conditional_edges(
         "decision",
         route_after_decision,
@@ -90,5 +95,5 @@ def build_agent_graph() -> Any:
 
 
 # Singleton — import this in routers/agent.py
-# Usage: result = agent_graph.invoke(initial_state)
 agent_graph = build_agent_graph()
+logger.info("LangGraph agent pipeline compiled and ready.")

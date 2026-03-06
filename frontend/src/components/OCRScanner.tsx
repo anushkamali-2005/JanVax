@@ -1,324 +1,228 @@
 "use client";
 
-/**
- * OCRScanner.tsx
- * ──────────────
- * In-browser OCR scanner using Tesseract.js.
- * Lets parents photograph paper vaccination cards and extract structured records.
- *
- * Flow: Camera/File → Tesseract.js (in-browser) → /ocr-clean API → Review → Save
- */
+import React, { useState, useRef, useCallback } from "react";
+import Webcam from "react-webcam";
+import Tesseract from "tesseract.js";
+import { Camera, CheckCircle2, Loader2, Upload, X } from "lucide-react";
 
-import { useState, useRef, useCallback } from "react";
-import { Camera, Upload, Loader2, CheckCircle, XCircle, RefreshCcw, Save } from "lucide-react";
-import { createWorker } from "tesseract.js";
-import { cleanOCR, type OCRResponse } from "@/lib/api";
-import { motion, AnimatePresence } from "framer-motion";
-
-type ScanStage = "idle" | "capturing" | "processing" | "reviewing";
-
-interface ExtractedRecord {
-    vaccineName: string;
-    vaccineCode: string;
-    dateGiven: string;
-    centerName: string;
-    confidence: number;
-    rawLine: string;
-    accepted: boolean;
+interface OCRScannerProps {
+    childId: string;
+    onSaved: () => void;
 }
 
-export default function OCRScanner() {
-    const [stage, setStage] = useState<ScanStage>("idle");
-    const [previewSrc, setPreviewSrc] = useState<string | null>(null);
-    const [rawText, setRawText] = useState("");
-    const [records, setRecords] = useState<ExtractedRecord[]>([]);
-    const [unmatched, setUnmatched] = useState<string[]>([]);
-    const [ocrProgress, setOcrProgress] = useState(0);
+export default function OCRScanner({ childId, onSaved }: OCRScannerProps) {
+    const webcamRef = useRef<Webcam>(null);
+    const [image, setImage] = useState<string | null>(null);
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanProgress, setScanProgress] = useState(0);
+    const [extractedData, setExtractedData] = useState<any | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploadMode, setUploadMode] = useState(false);
 
-    // ── Handle file/camera selection ─────────────────────────────────────────
-    const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Capture from Webcam
+    const capture = useCallback(() => {
+        if (webcamRef.current) {
+            const imageSrc = webcamRef.current.getScreenshot();
+            setImage(imageSrc);
+            processImage(imageSrc);
+        }
+    }, [webcamRef]);
+
+    // Handle File Upload
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64data = reader.result as string;
+                setImage(base64data);
+                processImage(base64data);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
-        // Show preview
-        const reader = new FileReader();
-        reader.onload = () => setPreviewSrc(reader.result as string);
-        reader.readAsDataURL(file);
-
-        setStage("processing");
+    // Run Tesseract OCR in Browser, then send to backend NLP
+    const processImage = async (imgSrc: string | null) => {
+        if (!imgSrc) return;
+        setIsScanning(true);
         setError(null);
-        setOcrProgress(0);
+        setExtractedData(null);
+        setScanProgress(0);
 
         try {
-            // Step 1: Run Tesseract.js in-browser
-            const worker = await createWorker("eng", 1, {
+            // 1. Client-side OCR with Tesseract
+            const result = await Tesseract.recognize(imgSrc, "eng", {
                 logger: (m) => {
                     if (m.status === "recognizing text") {
-                        setOcrProgress(Math.round(m.progress * 100));
+                        setScanProgress(Math.round(m.progress * 100));
                     }
                 },
             });
 
-            const { data } = await worker.recognize(file);
-            const text = data.text;
-            setRawText(text);
-            await worker.terminate();
+            const rawText = result.data.text;
 
-            // Step 2: Send to backend for NLP cleaning
-            const result: OCRResponse = await cleanOCR(text);
+            if (rawText.trim().length < 10) {
+                throw new Error("Could not read enough text. Try a clearer image.");
+            }
 
-            setRecords(
-                result.extracted_records.map((r) => ({
-                    ...r,
-                    accepted: r.confidence >= 0.80,
-                }))
-            );
-            setUnmatched(result.unmatched_lines);
-            setStage("reviewing");
+            // 2. Send Raw Text to Backend for spaCy NLP extraction
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+            const response = await fetch(`${apiUrl}/ocr-clean`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ raw_text: rawText }),
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to process data securely.");
+            }
+
+            const cleanData = await response.json();
+            setExtractedData(cleanData.extracted_entities);
+
         } catch (err: any) {
-            console.error("OCR failed", err);
-            setError(err.message || "OCR processing failed. Please try again.");
-            setStage("idle");
+            setError(err.message || "An error occurred during scanning. Please try again.");
+            setImage(null);
+        } finally {
+            setIsScanning(false);
         }
-    }, []);
-
-    // ── Toggle acceptance of a record ────────────────────────────────────────
-    const toggleRecord = (index: number) => {
-        setRecords((prev) =>
-            prev.map((r, i) => (i === index ? { ...r, accepted: !r.accepted } : r))
-        );
     };
 
-    // ── Reset scanner ────────────────────────────────────────────────────────
-    const reset = () => {
-        setStage("idle");
-        setPreviewSrc(null);
-        setRawText("");
-        setRecords([]);
-        setUnmatched([]);
-        setError(null);
-        setOcrProgress(0);
-    };
-
-    // ── Save accepted records ────────────────────────────────────────────────
     const handleSave = () => {
-        const accepted = records.filter((r) => r.accepted);
-        // In production: call Firebase to save these vaccine records
-        console.log("Saving accepted records:", accepted);
-        alert(`${accepted.length} records saved successfully!`);
-        reset();
+        // In a real app we would merge this data into Firebase here
+        onSaved();
     };
 
     return (
-        <div className="space-y-8">
-            {/* Idle State: Upload prompt */}
-            {stage === "idle" && (
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-slate-900 border-2 border-dashed border-white/10 rounded-[2.5rem] p-12 flex flex-col items-center text-center hover:border-blue-500/30 transition-all cursor-pointer group"
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    <div className="w-20 h-20 bg-blue-600/10 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <Camera className="w-10 h-10 text-blue-400" />
-                    </div>
-                    <h3 className="text-2xl font-bold mb-2">Tap to Scan Card</h3>
-                    <p className="text-slate-400 max-w-sm">
-                        Take a photo of the vaccination card or upload an existing image.
-                        Our AI will extract vaccine records automatically.
-                    </p>
-
-                    <div className="flex items-center gap-4 mt-8">
-                        <button className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all">
-                            <Camera className="w-5 h-5" /> Take Photo
-                        </button>
-                        <button className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl font-bold flex items-center gap-2 border border-white/10 transition-all">
-                            <Upload className="w-5 h-5" /> Upload File
-                        </button>
-                    </div>
-
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleFileSelect}
-                        className="hidden"
-                    />
-                </motion.div>
-            )}
-
-            {/* Error State */}
-            {error && (
-                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center gap-3">
-                    <XCircle className="w-5 h-5 shrink-0" />
-                    <span>{error}</span>
-                    <button onClick={reset} className="ml-auto font-bold text-sm hover:text-rose-300">
-                        Retry
+        <div className="bg-white rounded-2xl shadow-sm border border-[var(--border)] overflow-hidden">
+            <div className="p-6 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface)]">
+                <h2 className="font-semibold text-[var(--ink-1)]">Vaccine Card Scanner</h2>
+                {!image && (
+                    <button
+                        onClick={() => setUploadMode(!uploadMode)}
+                        className="text-xs font-medium text-[var(--ink-3)] hover:text-[var(--ink-1)] flex items-center gap-1"
+                    >
+                        {uploadMode ? <Camera size={14} /> : <Upload size={14} />}
+                        {uploadMode ? "Use Camera" : "Upload File"}
                     </button>
-                </div>
-            )}
+                )}
+            </div>
 
-            {/* Processing State */}
-            {stage === "processing" && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-12 flex flex-col items-center"
-                >
-                    {previewSrc && (
-                        <img
-                            src={previewSrc}
-                            alt="Scanned card"
-                            className="w-64 h-auto rounded-2xl border border-white/10 mb-8 shadow-2xl"
+            <div className="p-6">
+                {/* STATE 1: CAMERA OR UPLOAD READY */}
+                {!image && !uploadMode && (
+                    <div className="relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center">
+                        <Webcam
+                            audio={false}
+                            ref={webcamRef}
+                            screenshotFormat="image/jpeg"
+                            videoConstraints={{ facingMode: "environment" }}
+                            className="absolute inset-0 w-full h-full object-cover"
                         />
-                    )}
-                    <Loader2 className="w-12 h-12 text-blue-400 animate-spin mb-4" />
-                    <h3 className="text-xl font-bold mb-2">Processing Card...</h3>
-                    <p className="text-slate-400 text-sm mb-4">Running Tesseract.js OCR in your browser</p>
-
-                    {/* Progress bar */}
-                    <div className="w-64 h-2 bg-white/5 rounded-full overflow-hidden">
-                        <motion.div
-                            className="h-full bg-blue-500"
-                            animate={{ width: `${ocrProgress}%` }}
-                            transition={{ duration: 0.3 }}
-                        />
+                        <div className="absolute inset-0 pointer-events-none border-2 border-white/20 rounded-xl m-4 border-dashed" />
                     </div>
-                    <span className="text-xs text-slate-500 mt-2">{ocrProgress}% complete</span>
-                </motion.div>
-            )}
+                )}
 
-            {/* Review State */}
-            {stage === "reviewing" && (
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="space-y-6"
-                >
-                    {/* Preview + Raw Text */}
-                    <div className="grid md:grid-cols-2 gap-6">
-                        {previewSrc && (
-                            <div className="bg-slate-900 border border-white/10 rounded-3xl p-4 overflow-hidden">
-                                <img
-                                    src={previewSrc}
-                                    alt="Scanned card"
-                                    className="w-full rounded-2xl"
+                {!image && uploadMode && (
+                    <div className="aspect-video border-2 border-dashed border-[var(--border)] rounded-xl flex flex-col items-center justify-center bg-[var(--surface)] p-6 text-center">
+                        <Upload size={32} className="text-[var(--ink-3)] mb-4" />
+                        <p className="text-sm font-medium text-[var(--ink-1)] mb-1">Upload Card Image</p>
+                        <p className="text-xs text-[var(--ink-3)] mb-4">JPEG, PNG up to 10MB</p>
+                        <label className="btn-primary cursor-pointer text-sm py-2 px-4 shadow-none">
+                            Select File
+                            <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                        </label>
+                    </div>
+                )}
+
+                {/* STATE 2: IMAGE CAPTURED & SCANNING */}
+                {image && isScanning && (
+                    <div className="relative rounded-xl overflow-hidden aspect-video border border-[var(--border)]">
+                        <img src={image} alt="Captured" className="w-full h-full object-cover opacity-50 grayscale" />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 text-white">
+                            <Loader2 className="animate-spin mb-4" size={32} />
+                            <p className="font-medium text-sm tracking-wide">ANALYZING TEXT</p>
+                            <div className="w-48 h-1.5 bg-white/20 rounded-full mt-4 overflow-hidden">
+                                <div
+                                    className="h-full bg-[var(--blue)] transition-all duration-300"
+                                    style={{ width: `${scanProgress}%` }}
                                 />
                             </div>
-                        )}
-                        <div className="bg-slate-900 border border-white/10 rounded-3xl p-6">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">Raw OCR Text</h4>
-                            <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono leading-relaxed max-h-60 overflow-y-auto">
-                                {rawText || "No text detected."}
-                            </pre>
                         </div>
                     </div>
+                )}
 
-                    {/* Extracted Records */}
-                    <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8">
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-bold">Extracted Records ({records.length})</h3>
-                            <span className="text-xs text-slate-500 font-bold">
-                                {records.filter((r) => r.accepted).length} accepted
-                            </span>
-                        </div>
-
-                        <AnimatePresence>
-                            {records.length > 0 ? (
-                                <div className="space-y-3">
-                                    {records.map((rec, i) => (
-                                        <motion.div
-                                            key={i}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: i * 0.05 }}
-                                            onClick={() => toggleRecord(i)}
-                                            className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all border ${rec.accepted
-                                                    ? "bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10"
-                                                    : "bg-white/5 border-white/10 hover:bg-white/10 opacity-60"
-                                                }`}
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                {rec.accepted ? (
-                                                    <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
-                                                ) : (
-                                                    <XCircle className="w-5 h-5 text-slate-600 shrink-0" />
-                                                )}
-                                                <div>
-                                                    <div className="font-bold">{rec.vaccineName}</div>
-                                                    <div className="text-xs text-slate-500 flex items-center gap-2">
-                                                        <span>{rec.vaccineCode}</span>
-                                                        {rec.dateGiven && (
-                                                            <>
-                                                                <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                                                                <span>{rec.dateGiven}</span>
-                                                            </>
-                                                        )}
-                                                        {rec.centerName && (
-                                                            <>
-                                                                <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                                                                <span>{rec.centerName}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${rec.confidence >= 0.80
-                                                    ? "bg-emerald-500/10 text-emerald-400"
-                                                    : rec.confidence >= 0.65
-                                                        ? "bg-amber-500/10 text-amber-400"
-                                                        : "bg-rose-500/10 text-rose-400"
-                                                }`}>
-                                                {Math.round(rec.confidence * 100)}%
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center text-slate-500 py-8">
-                                    No vaccine records could be extracted. Try a clearer photo.
-                                </div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Unmatched lines */}
-                        {unmatched.length > 0 && (
-                            <div className="mt-6 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10">
-                                <h4 className="text-xs font-bold uppercase tracking-widest text-amber-400 mb-2">
-                                    Unmatched Lines ({unmatched.length})
-                                </h4>
-                                <div className="text-xs text-slate-500 space-y-1 font-mono">
-                                    {unmatched.map((line, i) => (
-                                        <div key={i}>• {line}</div>
-                                    ))}
-                                </div>
+                {/* STATE 3: RESULTS EXTRACTED */}
+                {image && !isScanning && extractedData && (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex items-center gap-3 mb-6 p-4 rounded-xl bg-green-50/50 border border-green-100">
+                            <CheckCircle2 className="text-[var(--green)]" size={24} />
+                            <div>
+                                <h3 className="font-semibold text-[var(--ink-1)]">Scan Complete</h3>
+                                <p className="text-sm text-[var(--ink-3)]">Review extracted details below</p>
                             </div>
-                        )}
-                    </div>
+                        </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-4">
+                        <div className="space-y-4 mb-8">
+                            {Object.entries(extractedData).map(([key, value]: [string, any]) => {
+                                // Skip empty arrays from NLP extraction
+                                if (Array.isArray(value) && value.length === 0) return null;
+
+                                return (
+                                    <div key={key} className="flex justify-between items-center py-3 border-b border-[var(--border)] last:border-0">
+                                        <span className="text-sm font-medium text-[var(--ink-3)] capitalize">
+                                            {key.replace(/_/g, " ")}
+                                        </span>
+                                        <span className="text-sm font-semibold text-[var(--ink-1)] text-right">
+                                            {Array.isArray(value) ? value.join(", ") : value}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* STATE 4: ERROR */}
+                {error && (
+                    <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100 mt-4 text-center flex flex-col items-center">
+                        <AlertCircle className="mb-2" size={24} />
+                        <p className="font-medium">{error}</p>
+                    </div>
+                )}
+            </div>
+
+            {/* ACTION FOOTER */}
+            <div className="bg-[var(--surface)] p-6 border-t border-[var(--border)] flex gap-3">
+                {(!image || error) ? (
+                    <button
+                        onClick={capture}
+                        className="btn-primary w-full flex justify-center items-center gap-2"
+                        disabled={uploadMode}
+                    >
+                        <Camera size={18} />
+                        Capture Record
+                    </button>
+                ) : (
+                    <>
+                        <button
+                            onClick={() => { setImage(null); setExtractedData(null); setError(null); }}
+                            className="px-6 py-3 rounded-xl border border-[var(--border)] font-medium text-[var(--ink-2)] hover:bg-[var(--border)] transition-colors w-1/3"
+                            disabled={isScanning}
+                        >
+                            Retake
+                        </button>
                         <button
                             onClick={handleSave}
-                            disabled={records.filter((r) => r.accepted).length === 0}
-                            className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:cursor-not-allowed rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-600/20"
+                            className="btn-primary flex-1 shadow-md shadow-blue-500/20"
+                            disabled={isScanning || !extractedData}
                         >
-                            <Save className="w-5 h-5" />
-                            Save {records.filter((r) => r.accepted).length} Records
+                            Import to Profile
                         </button>
-                        <button
-                            onClick={reset}
-                            className="py-4 px-6 bg-white/5 hover:bg-white/10 rounded-2xl font-bold flex items-center gap-2 border border-white/10 transition-all"
-                        >
-                            <RefreshCcw className="w-5 h-5" />
-                            Rescan
-                        </button>
-                    </div>
-                </motion.div>
-            )}
+                    </>
+                )}
+            </div>
         </div>
     );
 }
