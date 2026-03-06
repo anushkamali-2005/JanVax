@@ -16,9 +16,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import predict, agent, verify, ocr, community, stats, reminders
+from routers import predict, agent, verify, ocr, community, stats, reminders, glossary
 from services.firebase_service import init_firebase
-from services.reminder_service import start_scheduler, stop_scheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from routers.reminders import (
+    run_7day_reminders, run_1day_reminders,
+    run_day_of_reminders, run_overdue_followups
+)
+
+scheduler = AsyncIOScheduler()
+# Every morning at 8am IST (2:30 UTC)
+scheduler.add_job(run_7day_reminders,    'cron', hour=2, minute=30)
+scheduler.add_job(run_1day_reminders,    'cron', hour=2, minute=35)
+scheduler.add_job(run_day_of_reminders,  'cron', hour=2, minute=40)
+scheduler.add_job(run_overdue_followups, 'cron', hour=2, minute=45)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -39,14 +50,14 @@ async def lifespan(app: FastAPI):
     init_firebase()
 
     logger.info("Starting APScheduler reminder jobs...")
-    start_scheduler()
+    scheduler.start()
 
-    logger.info("VaxGuard API ready.")
+    logger.info("JanVax API ready.")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     logger.info("Stopping scheduler...")
-    stop_scheduler()
+    scheduler.shutdown()
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -83,6 +94,7 @@ app.include_router(ocr.router,        prefix="",           tags=["OCR"])
 app.include_router(community.router,  prefix="/community", tags=["Community"])
 app.include_router(stats.router,      prefix="",           tags=["MLOps"])
 app.include_router(reminders.router,  prefix="/reminders", tags=["Reminders"])
+app.include_router(glossary.router,   prefix="",           tags=["Glossary"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
