@@ -92,6 +92,28 @@ export default function Dashboard() {
                     </button>
                 </header>
 
+                {/* ── Vaccine Roadmap Entry Banner ── */}
+                <button
+                    onClick={() => router.push('/roadmap')}
+                    className='w-full bg-gradient-to-r from-blue-700 to-blue-900 border border-blue-600/50 text-white rounded-3xl p-6 md:p-8 mb-8 text-left shadow-2xl hover:shadow-blue-900/40 hover:-translate-y-1 transition-all group overflow-hidden relative'
+                >
+                    <div className='absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-blue-500/20 to-transparent pointer-events-none' />
+                    <div className='flex items-center gap-6 relative z-10'>
+                        <div className='bg-white/10 p-4 rounded-2xl shadow-inner'>
+                            <span className='text-4xl'>💉</span>
+                        </div>
+                        <div className='flex-1'>
+                            <h2 className='text-2xl font-black tracking-tight'>Get Your Child Vaccinated</h2>
+                            <p className='text-blue-200 text-sm md:text-base mt-1 font-medium max-w-2xl'>
+                                See your child's complete vaccination roadmap — from birth to 5 years. Know exactly what's due today.
+                            </p>
+                        </div>
+                        <div className='hidden md:flex items-center justify-center w-12 h-12 rounded-full bg-white/10 group-hover:bg-white group-hover:text-blue-900 transition-colors'>
+                            <ChevronRight className='w-6 h-6' />
+                        </div>
+                    </div>
+                </button>
+
                 {/* Family Summary Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
                     <div className="p-8 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 relative overflow-hidden group">
