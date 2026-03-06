@@ -13,6 +13,9 @@ import {
     signInWithPhoneNumber,
     onAuthStateChanged,
     signOut,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    sendEmailVerification,
     type User,
 } from "firebase/auth";
 import {
@@ -64,6 +67,18 @@ export async function signInWithPhone(
     });
     const confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
     return { verificationId: confirmationResult.verificationId, recaptchaVerifier };
+}
+
+export async function signUpWithEmail(email: string, pass: string): Promise<User> {
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    await _ensureUserDoc(result.user);
+    await sendEmailVerification(result.user);
+    return result.user;
+}
+
+export async function signInWithEmail(email: string, pass: string): Promise<User> {
+    const result = await signInWithEmailAndPassword(auth, email, pass);
+    return result.user;
 }
 
 export async function logOut(): Promise<void> {

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import Webcam from "react-webcam";
 import Tesseract from "tesseract.js";
-import { Camera, CheckCircle2, Loader2, Upload, X } from "lucide-react";
+import { Camera, CheckCircle2, Loader2, Upload, X, AlertCircle } from "lucide-react";
 
 interface OCRScannerProps {
     childId: string;

@@ -192,6 +192,7 @@ export interface DistrictCoverage {
     mmrCoverage: number;
     polioOPV: number;
     bcgCoverage: number;
+    dptCoverage: number;
     herdRisk: boolean;
 }
 

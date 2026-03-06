@@ -1,0 +1,73 @@
+[
+    {
+        "id": "birth",
+        "label": "At Birth",
+        "offsetDays": 0,
+        "vaccines": [
+            "BCG",
+            "OPV Dose 0",
+            "Hepatitis B Birth Dose"
+        ]
+    },
+    {
+        "id": "6_weeks",
+        "label": "6 Weeks",
+        "offsetDays": 42,
+        "vaccines": [
+            "OPV Dose 1",
+            "Pentavalent Dose 1",
+            "Rotavirus Dose 1",
+            "fIPV Dose 1"
+        ]
+    },
+    {
+        "id": "10_weeks",
+        "label": "10 Weeks",
+        "offsetDays": 70,
+        "vaccines": [
+            "OPV Dose 2",
+            "Pentavalent Dose 2",
+            "Rotavirus Dose 2"
+        ]
+    },
+    {
+        "id": "14_weeks",
+        "label": "14 Weeks",
+        "offsetDays": 98,
+        "vaccines": [
+            "OPV Dose 3",
+            "Pentavalent Dose 3",
+            "Rotavirus Dose 3",
+            "fIPV Dose 2"
+        ]
+    },
+    {
+        "id": "9_months",
+        "label": "9 Months",
+        "offsetDays": 274,
+        "vaccines": [
+            "MR Dose 1",
+            "JE Dose 1",
+            "Vitamin A 1st Dose"
+        ]
+    },
+    {
+        "id": "16_24_months",
+        "label": "16-24 Months",
+        "offsetDays": 487,
+        "vaccines": [
+            "MR Dose 2",
+            "JE Dose 2",
+            "DPT 1st Booster",
+            "OPV Booster"
+        ]
+    },
+    {
+        "id": "5_6_years",
+        "label": "5-6 Years",
+        "offsetDays": 1826,
+        "vaccines": [
+            "DPT 2nd Booster"
+        ]
+    }
+]

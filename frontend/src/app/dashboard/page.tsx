@@ -11,29 +11,51 @@ import RiskScoreCard from "@/components/RiskScoreCard";
 import { Plus, LayoutGrid, Map as MapIcon, Scan, Activity, ArrowRight } from "lucide-react";
 
 export default function Dashboard() {
-    const [user, setUser] = useState<any>(null);
+    const [user, setUser] = useState<any>({ displayName: "Demo User", email: "demo@janvax.in" });
     const [children, setChildren] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [language, setLanguage] = useState("en");
     const router = useRouter();
 
     useEffect(() => {
-        const unsubAuth = onAuthStateChanged(auth, (user) => {
-            if (!user) {
+        // demo mode bypass
+        if (typeof window !== "undefined" && localStorage.getItem("janvax_demo_mode") === "true") {
+            setLoading(false);
+            return;
+        }
+
+        // Safety timeout: if auth/data takes > 5s, show the dashboard anyway
+        const timer = setTimeout(() => {
+            setLoading(false);
+        }, 5000);
+
+        const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+            if (firebaseUser) {
+                setUser(firebaseUser);
+                try {
+                    const unsubscribeChildren = subscribeToChildren(firebaseUser.uid, (data) => {
+                        setChildren(data);
+                        setLoading(false);
+                        clearTimeout(timer);
+                    });
+                    return () => {
+                        unsubscribeChildren();
+                        clearTimeout(timer);
+                    }
+                } catch (err) {
+                    console.error("Firestore error:", err);
+                    setLoading(false);
+                    clearTimeout(timer);
+                }
+            } else {
                 router.push("/");
-                return;
+                clearTimeout(timer);
             }
-            setUser(user);
-
-            const unsubChildren = subscribeToChildren(user.uid, (data) => {
-                setChildren(data);
-                setLoading(false);
-            });
-
-            return () => unsubChildren();
         });
-
-        return unsubAuth;
+        return () => {
+            unsubscribeAuth();
+            clearTimeout(timer);
+        };
     }, [router]);
 
     if (loading) {
@@ -50,7 +72,6 @@ export default function Dashboard() {
     // Derived stats
     const highRiskCount = children.filter(c => (c.riskScore || 0) >= 70).length;
     const dueSoonCount = children.filter(c => (c.riskScore || 0) >= 40 && (c.riskScore || 0) < 70).length;
-
     return (
         <div className="page-shell">
             <Nav language={language} onLanguageChange={setLanguage} />
@@ -75,7 +96,7 @@ export default function Dashboard() {
                 </header>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10 fade-up fade-up-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-up fade-up-2">
                     <div className="card-flat" style={{ borderLeft: "4px solid var(--green)" }}>
                         <p className="label" style={{ marginBottom: "8px" }}>Status</p>
                         <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
@@ -182,7 +203,7 @@ export default function Dashboard() {
                                 <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>AI Health Guard</span>
                             </div>
                             <p style={{ fontSize: "0.8125rem", color: "var(--ink-3)", lineHeight: 1.6 }}>
-                                Your records are being monitored for outbreak risks. We'll alert you via SMS if your district has a reported case.
+                                Your records are being monitored for outbreak risks. We&apos;ll alert you via SMS if your district has a reported case.
                             </p>
                         </div>
                     </aside>

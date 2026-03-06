@@ -35,9 +35,15 @@ export default function LoginPage() {
       await signInWithGoogle();
       router.replace("/dashboard");
     } catch (e: any) {
-      setError("Sign-in failed. Please try again.");
+      console.error("Auth error:", e);
+      setError("Sign-in failed (Check .env.local keys).");
       setLoading(false);
     }
+  }
+
+  function handleDemo() {
+    localStorage.setItem("janvax_demo_mode", "true");
+    router.replace("/dashboard");
   }
 
   return (
@@ -73,7 +79,7 @@ export default function LoginPage() {
 
         {/* Main copy */}
         <div style={{ maxWidth: "400px" }}>
-          <p className="label" style={{ marginBottom: "1.25rem" }}>India's vaccination platform</p>
+          <p className="label" style={{ marginBottom: "1.25rem" }}>India&apos;s vaccination platform</p>
           <h1 className="display" style={{ marginBottom: "1.5rem" }}>
             Every child,<br />
             <span style={{ color: "var(--green)" }}>protected.</span>
@@ -133,7 +139,7 @@ export default function LoginPage() {
             Welcome to JanVax
           </h2>
           <p style={{ fontSize: "0.875rem", color: "var(--ink-3)", marginBottom: "2rem", lineHeight: 1.6 }}>
-            Sign in to manage your family's vaccination records with AI guidance.
+            Sign in to manage your family&apos;s vaccination records with AI guidance.
           </p>
 
           {error && (
@@ -181,6 +187,27 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Continue with Google"}
           </button>
 
+          <button
+            onClick={() => router.push("/login-email")}
+            style={{
+              width: "100%",
+              marginTop: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              padding: "0.75rem",
+              background: "#f8fafc",
+              border: "1px solid var(--border)",
+              borderRadius: "10px",
+              fontSize: "0.9375rem",
+              fontWeight: 500,
+              color: "var(--ink)",
+            }}
+          >
+            Continue with Email
+          </button>
+
           <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "1.25rem 0" }}>
             <hr className="divider" style={{ flex: 1 }} />
             <span style={{ fontSize: "0.75rem", color: "var(--ink-4)" }}>or</span>
@@ -204,6 +231,22 @@ export default function LoginPage() {
             Rural families can use USSD for offline updates.
             <br />Contact your local health worker for help.
           </p>
+
+          <button
+            onClick={handleDemo}
+            style={{
+              marginTop: "2rem",
+              width: "100%",
+              fontSize: "0.75rem",
+              color: "var(--ink-4)",
+              textDecoration: "underline",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Evaluator Demo Bypass →
+          </button>
         </div>
       </div>
     </div>

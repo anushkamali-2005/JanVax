@@ -4,36 +4,32 @@ import React, { useEffect, useState, useRef } from "react";
 import * as d3 from "d3";
 import { Loader2, Users, AlertTriangle, ShieldCheck } from "lucide-react";
 
-interface DistrictData {
-    district: string;
-    state: string;
-    totalChildren: number;
-    mmrCoverage: number;
-    polioOPV: number;
-    bcgCoverage: number;
-    dptCoverage: number;
-    herdRisk: boolean;
-    dataSource: string;
+
+import { DistrictCoverage } from "@/lib/api";
+
+interface HerdImmunityMapProps {
+    districts?: DistrictCoverage[];
 }
 
-interface CoverageResponse {
-    districts: DistrictData[];
-    timestamp: string;
-}
-
-export default function HerdImmunityMap() {
-    const [coverageData, setCoverageData] = useState<DistrictData[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+export default function HerdImmunityMap({ districts }: HerdImmunityMapProps) {
+    const [coverageData, setCoverageData] = useState<DistrictCoverage[]>(districts || []);
+    const [isLoading, setIsLoading] = useState(!districts);
     const [error, setError] = useState<string | null>(null);
     const svgRef = useRef<SVGSVGElement>(null);
 
     useEffect(() => {
+        if (districts) {
+            setCoverageData(districts);
+            setIsLoading(false);
+            return;
+        }
+
         const fetchCoverage = async () => {
             try {
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
                 const res = await fetch(`${apiUrl}/community/coverage`);
                 if (!res.ok) throw new Error("Failed to fetch coverage data");
-                const data: CoverageResponse = await res.json();
+                const data = await res.json();
                 setCoverageData(data.districts);
             } catch (err: any) {
                 setError("Unable to load live community stats.");
@@ -44,7 +40,7 @@ export default function HerdImmunityMap() {
         };
 
         fetchCoverage();
-    }, []);
+    }, [districts]);
 
     // Average stats for display
     const avgMmr = coverageData.length
@@ -117,10 +113,10 @@ export default function HerdImmunityMap() {
                                     <div
                                         key={idx}
                                         className={`p-4 rounded-xl border transition-all duration-300 transform hover:scale-105 ${isRisk
-                                                ? 'bg-red-50/50 border-red-200 shadow-[0_4px_20px_-4px_rgba(239,68,68,0.2)]'
-                                                : isSafe
-                                                    ? 'bg-green-50/50 border-green-200'
-                                                    : 'bg-white border-[var(--border)]'
+                                            ? 'bg-red-50/50 border-red-200 shadow-[0_4px_20px_-4px_rgba(239,68,68,0.2)]'
+                                            : isSafe
+                                                ? 'bg-green-50/50 border-green-200'
+                                                : 'bg-white border-[var(--border)]'
                                             }`}
                                     >
                                         <div className="flex justify-between items-start mb-2">
